@@ -7,6 +7,7 @@ import { GearSixIcon, ListIcon, MagnifyingGlassIcon, RobotIcon, XIcon } from "@p
 import { type KeyboardEvent, useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { useUIStore } from "~/hooks/useUIStore";
+import { useAppConfig } from "~/queries/config"; // doublexl
 
 export default function Header() {
 	const [searchQuery, setSearchQuery] = useState("");
@@ -16,6 +17,7 @@ export default function Header() {
 	const location = useLocation();
 	const [searchParams] = useSearchParams();
 	const { toggleSidebar, toggleAgentPanel, isAgentPanelOpen } = useUIStore();
+	const principal = useAppConfig().data?.principal; // doublexl
 
 	// Sync search input with URL query param so it stays populated
 	const urlQuery = searchParams.get("q") || "";
@@ -119,6 +121,16 @@ export default function Header() {
 			)}
 
 			<div className="flex items-center gap-1 ml-auto shrink-0">
+				{/* doublexl: who is signed in */}
+				{principal && (
+					<span
+						className="hidden md:inline text-xs text-kumo-subtle mr-2 truncate max-w-56"
+						title={`${principal.kind} · ${principal.role}`}
+					>
+						{principal.email ?? principal.id}
+						{principal.role === "admin" ? " (admin)" : ""}
+					</span>
+				)}
 				<Tooltip content={isAgentPanelOpen ? "Hide agent panel" : "Show agent panel"} side="bottom" asChild>
 					<Button
 						variant={isAgentPanelOpen ? "secondary" : "ghost"}

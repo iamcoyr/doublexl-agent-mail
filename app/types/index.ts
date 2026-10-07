@@ -16,6 +16,20 @@ export interface MailboxSettings {
 	agentSystemPrompt?: string;
 }
 
+// doublexl: the signed-in principal, as returned by GET /api/v1/config
+export interface PrincipalInfo {
+	kind: "human" | "agent";
+	id: string;
+	email?: string;
+	role: "admin" | "member";
+}
+
+export interface AppConfig {
+	domains: string[];
+	emailAddresses: string[];
+	principal: PrincipalInfo;
+}
+
 export interface Mailbox {
 	id: string;
 	email: string;
