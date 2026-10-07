@@ -89,8 +89,8 @@ export async function resolvePrincipal(env: Env, identity: Identity): Promise<Pr
 	let cfg: PrincipalsConfig = [];
 	try {
 		cfg = await loadPrincipals(env);
-	} catch (e) {
-		console.error("principals.json unreadable; only ADMIN_EMAILS can sign in:", (e as Error).message);
+	} catch {
+		// Logged once per cache TTL by loadPrincipals. Fall back to the bootstrap admins only.
 	}
 	return principalForIdentity(identity, cfg, getAdminEmails(env));
 }

@@ -100,7 +100,7 @@ export function isDomainAllowed(env: Env, address: string): boolean {
 
 // -- R2 config with TTL cache ---------------------------------------
 
-type CacheEntry = { value: unknown; expiresAt: number };
+type CacheEntry = { value: unknown; error?: Error; expiresAt: number };
 const cache = new Map<string, CacheEntry>();
 
 // Bumped on every invalidation. A load that started before an invalidation
@@ -127,28 +127,41 @@ async function loadR2Config<T>(
 ): Promise<T> {
 	const now = Date.now();
 	const hit = cache.get(key);
-	if (hit && hit.expiresAt > now) return hit.value as T;
+	if (hit && hit.expiresAt > now) {
+		if (hit.error) throw hit.error;
+		return hit.value as T;
+	}
 
 	const startedAt = generation;
+	const remember = (entry: Omit<CacheEntry, "expiresAt">) => {
+		if (startedAt === generation) cache.set(key, { ...entry, expiresAt: now + CONFIG_TTL_MS });
+	};
+
 	const obj = await env.BUCKET.get(key);
 	let value: T;
 	if (!obj) {
 		value = fallback;
 	} else {
-		let json: unknown;
+		let failure: string | null = null;
+		let parsedValue: T | undefined;
 		try {
-			json = await obj.json();
+			const parsed = schema.safeParse(await obj.json());
+			if (parsed.success) parsedValue = parsed.data;
+			else failure = `Config ${key} is invalid: ${parsed.error.issues.map((i) => i.message).join("; ")}`;
 		} catch {
-			throw new Error(`Config ${key} is not valid JSON`);
+			failure = `Config ${key} is not valid JSON`;
 		}
-		const parsed = schema.safeParse(json);
-		if (!parsed.success) {
-			throw new Error(`Config ${key} is invalid: ${parsed.error.issues.map((i) => i.message).join("; ")}`);
+		if (failure !== null) {
+			// Cache the failure too, so a broken object costs one R2 read and one log per TTL.
+			const error = new Error(failure);
+			console.error(error.message);
+			remember({ value: undefined, error });
+			throw error;
 		}
-		value = parsed.data;
+		value = parsedValue as T;
 	}
 
-	if (startedAt === generation) cache.set(key, { value, expiresAt: now + CONFIG_TTL_MS });
+	remember({ value });
 	return value;
 }
 

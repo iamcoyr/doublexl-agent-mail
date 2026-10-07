@@ -163,6 +163,12 @@ describe("settings validation", () => {
 		const stored = await (await env.BUCKET.get(`mailboxes/${LSC}.json`))!.json<{ agentSystemPrompt: string }>();
 		expect(stored.agentSystemPrompt).toBe("Be brief.");
 	});
+
+	it("lets members save when stored settings predate the strict schema", async () => {
+		await env.BUCKET.put(`mailboxes/${LSC}.json`, JSON.stringify({ fromName: "x", legacyKey: 1, agentSystemPrompt: "Be brief." }));
+		expect((await put(memberToken, LSC, { fromName: "Coy", agentSystemPrompt: "Be brief." })).status).toBe(200);
+		expect((await put(memberToken, LSC, { fromName: "Coy", agentSystemPrompt: "Changed" })).status).toBe(403);
+	});
 });
 
 describe("admin endpoints", () => {

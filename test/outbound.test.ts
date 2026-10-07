@@ -86,4 +86,16 @@ describe("REST send", () => {
 		expect((await res.json<{ error: string }>()).error).toContain("littlesaintscorner.com is not enabled for sending");
 		expect(await sentCount(LSC)).toBe(sentBefore);
 	});
+
+	it("removes the attachment blobs of a send that failed", async () => {
+		const failing = envWithEmail(async () => {
+			throw Object.assign(new Error("quota"), { code: "E_DAILY_LIMIT_EXCEEDED" });
+		});
+		const res = await send(failing, LSC, {
+			...message(LSC),
+			attachments: [{ content: btoa("hello"), filename: "notes.txt", type: "text/plain", disposition: "attachment" }],
+		});
+		expect(res.status).toBe(429);
+		expect((await env.BUCKET.list({ prefix: "attachments/" })).objects).toHaveLength(0);
+	});
 });

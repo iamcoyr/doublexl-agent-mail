@@ -3,7 +3,7 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import type { Context } from "hono";
-import { OutboundError, sendFromMailbox } from "../lib/outbound"; // doublexl: was sendEmail
+import { OutboundError, discardUnsent, sendFromMailbox, sendingDomainError } from "../lib/outbound"; // doublexl: was sendEmail
 import { storeAttachments } from "../lib/attachments";
 import type { EmailFull } from "../lib/schemas";
 import {
@@ -44,6 +44,8 @@ export async function handleReplyEmail(c: AppContext) {
 		if (e instanceof SenderValidationError) return c.json({ error: e.message }, 400);
 		throw e;
 	}
+	const domainError = sendingDomainError(c.env, fromEmail); // doublexl: before any send work
+	if (domainError) return c.json({ error: domainError }, 400);
 
 	const { messageId, outgoingMessageId } = generateMessageId(fromDomain);
 
@@ -107,7 +109,7 @@ export async function handleReplyEmail(c: AppContext) {
 			headers: buildThreadingHeaders(originalMsgId, references),
 		});
 	} catch (e) {
-		await stub.deleteEmail(messageId);
+		await discardUnsent(c.env, stub, messageId);
 		if (e instanceof OutboundError) return c.json({ error: e.message }, e.status);
 		throw e;
 	}
@@ -137,6 +139,8 @@ export async function handleForwardEmail(c: AppContext) {
 		if (e instanceof SenderValidationError) return c.json({ error: e.message }, 400);
 		throw e;
 	}
+	const domainError = sendingDomainError(c.env, fromEmail); // doublexl: before any send work
+	if (domainError) return c.json({ error: domainError }, 400);
 
 	const { messageId, outgoingMessageId } = generateMessageId(fromDomain);
 
@@ -195,7 +199,7 @@ export async function handleForwardEmail(c: AppContext) {
 			})),
 		});
 	} catch (e) {
-		await stub.deleteEmail(messageId);
+		await discardUnsent(c.env, stub, messageId);
 		if (e instanceof OutboundError) return c.json({ error: e.message }, e.status);
 		throw e;
 	}

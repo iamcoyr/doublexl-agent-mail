@@ -173,6 +173,18 @@ describe("rejections (D4)", () => {
 		expect(added).toHaveLength(1);
 	});
 
+	it("rejects oversized and empty messages permanently instead of throwing", async () => {
+		const big = fakeMessage(LSC, plainMime);
+		Object.assign(big, { rawSize: 26 * 1024 * 1024 });
+		await deliver(makeEnv().env, big);
+		expect(big.rejectedWith).toBe("5.3.4 Message too big");
+
+		const empty = fakeMessage(LSC, plainMime);
+		Object.assign(empty, { rawSize: 0 });
+		await deliver(makeEnv().env, empty);
+		expect(empty.rejectedWith).toBe("5.6.0 Empty message");
+	});
+
 	it("rejects without reading the message body", async () => {
 		const msg = fakeMessage("nobody@double-xl.ai", plainMime);
 		await deliver(makeEnv().env, msg);

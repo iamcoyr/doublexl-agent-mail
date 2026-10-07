@@ -21,10 +21,10 @@ import type { Env } from "./types";
 import { requireMailbox, type MailboxContext } from "./lib/mailbox";
 import { resolveInboundRecipient, type InboundMessage } from "./lib/routing"; // doublexl
 import { canAccessMailbox, canAdminister, publicPrincipal } from "./lib/authz"; // doublexl
-import { isDomainAllowed } from "./lib/config"; // doublexl
-import { MailboxSettingsSchema, canSetSettings, describeZodError, type MailboxSettings } from "./lib/settings"; // doublexl
+import { getDomains, isDomainAllowed } from "./lib/config"; // doublexl
+import { MailboxSettingsSchema, canSetSettings, describeZodError } from "./lib/settings"; // doublexl
 import { adminApp } from "./routes/admin"; // doublexl
-import { OutboundError, sendFromMailbox } from "./lib/outbound"; // doublexl
+import { OutboundError, discardUnsent, sendFromMailbox, sendingDomainError } from "./lib/outbound"; // doublexl
 
 type AppContext = Context<MailboxContext>;
 
@@ -92,8 +92,7 @@ app.route("/", adminApp); // doublexl: /api/v1/admin/*
 // -- Config ---------------------------------------------------------
 
 app.get("/api/v1/config", (c) => {
-	const domainsRaw = c.env.DOMAINS || "";
-	const domains = domainsRaw.split(",").map((d) => d.trim()).filter(Boolean);
+	const domains = getDomains(c.env); // doublexl: same parsing as the server-side allowlist
 	const emailAddresses = c.env.EMAIL_ADDRESSES ?? [];
 	return c.json({ domains, emailAddresses, principal: publicPrincipal(c.var.principal) }); // doublexl: + principal
 });
@@ -146,9 +145,7 @@ app.put("/api/v1/mailboxes/:mailboxId", async (c) => {
 	const key = `mailboxes/${mailboxId}.json`;
 	const existing = await c.env.BUCKET.get(key);
 	if (!existing) return c.json({ error: "Not found" }, 404);
-	const current = MailboxSettingsSchema.safeParse(await existing.json().catch(() => null));
-	const currentSettings: MailboxSettings | null = current.success ? current.data : null;
-	if (!canSetSettings(c.var.principal, settings, currentSettings)) {
+	if (!canSetSettings(c.var.principal, settings, await existing.json().catch(() => null))) {
 		return c.json({ error: "Only admins can change agentSystemPrompt" }, 403);
 	}
 	await c.env.BUCKET.put(key, JSON.stringify(settings));
@@ -201,6 +198,8 @@ app.post("/api/v1/mailboxes/:mailboxId/emails", async (c: AppContext) => {
 		if (e instanceof SenderValidationError) return c.json({ error: e.message }, 400);
 		throw e;
 	}
+	const domainError = sendingDomainError(c.env, fromEmail); // doublexl: before any send work
+	if (domainError) return c.json({ error: domainError }, 400);
 
 	const { messageId, outgoingMessageId } = generateMessageId(fromDomain);
 	const stub = c.var.mailboxStub;
@@ -233,7 +232,7 @@ app.post("/api/v1/mailboxes/:mailboxId/emails", async (c: AppContext) => {
 			...(in_reply_to ? { headers: buildThreadingHeaders(in_reply_to, references || []) } : {}),
 		});
 	} catch (e) {
-		await stub.deleteEmail(messageId);
+		await discardUnsent(c.env, stub, messageId);
 		if (e instanceof OutboundError) return c.json({ error: e.message }, e.status);
 		throw e;
 	}
@@ -379,6 +378,9 @@ async function receiveEmail(message: InboundMessage, env: Env, ctx: ExecutionCon
 	const route = await resolveInboundRecipient(env, message.to);
 	if (route.kind === "reject") { message.setReject(route.reason); return; }
 	const { mailboxId, deliveredTo } = route;
+	// doublexl: reject sizes we won't read permanently, rather than throwing (a delivery failure).
+	if (message.rawSize > MAX_EMAIL_SIZE) { message.setReject("5.3.4 Message too big"); return; }
+	if (message.rawSize <= 0) { message.setReject("5.6.0 Empty message"); return; }
 
 	const rawEmail = await streamToArrayBuffer(message.raw, message.rawSize);
 	const parsedEmail = await new PostalMime().parse(rawEmail);

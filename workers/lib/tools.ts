@@ -27,7 +27,7 @@ import {
 	buildThreadingHeaders,
 } from "./email-helpers";
 import { verifyDraft } from "./ai";
-import { sendFromMailbox } from "./outbound"; // doublexl: was sendEmail
+import { sendFromMailbox, sendingDomainError } from "./outbound"; // doublexl: was sendEmail
 import { Folders } from "../../shared/folders";
 import type { Env } from "../types";
 
@@ -419,6 +419,8 @@ export async function toolSendReply(
 	const { originalMsgId, references, threadId } = buildReferencesChain(originalEmail);
 	const fromDomain = mailboxId.split("@")[1];
 	if (!fromDomain) throw new Error("Invalid mailbox email address");
+	const domainError = sendingDomainError(env, mailboxId); // doublexl: before the AI draft check
+	if (domainError) return { error: domainError };
 	const { messageId, outgoingMessageId } = generateMessageId(fromDomain);
 
 	// Verify and append quoted original message
@@ -491,6 +493,8 @@ export async function toolSendEmail(
 
 	const fromDomain = mailboxId.split("@")[1];
 	if (!fromDomain) throw new Error("Invalid mailbox email address");
+	const domainError = sendingDomainError(env, mailboxId); // doublexl: before the AI draft check
+	if (domainError) return { error: domainError };
 	const { messageId, outgoingMessageId } = generateMessageId(fromDomain);
 
 	const sanitizedBody = await verifyDraft(env.AI, params.bodyHtml);

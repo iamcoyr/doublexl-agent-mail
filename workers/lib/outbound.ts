@@ -4,6 +4,7 @@
 //   this deployment doesn't serve.
 // - Email Service errors become messages a person or agent can act on.
 
+import type { MailboxDO } from "../durableObject";
 import { sendEmail, type SendEmailParams } from "../email-sender";
 import type { Env } from "../types";
 import { domainOf, isDomainAllowed } from "./config";
@@ -52,10 +53,36 @@ export function describeSendError(error: unknown, fromEmail: string): OutboundEr
 	}
 }
 
+/** Why this deployment may not send from `fromEmail`, or null if it may. Check before doing any send work. */
+export function sendingDomainError(env: Env, fromEmail: string): string | null {
+	const from = fromEmail.trim().toLowerCase();
+	return isDomainAllowed(env, from)
+		? null
+		: `${domainOf(from) || from} is not one of this inbox's domains; can't send from ${from}.`;
+}
+
 /** Throws OutboundError if this deployment may not send from `fromEmail`. */
 export function assertSendingDomain(env: Env, fromEmail: string): void {
-	if (!isDomainAllowed(env, fromEmail)) {
-		throw new OutboundError(`${domainOf(fromEmail) || fromEmail} is not one of this inbox's domains; can't send from ${fromEmail}.`, 400);
+	const error = sendingDomainError(env, fromEmail);
+	if (error) throw new OutboundError(error, 400);
+}
+
+/**
+ * Remove the Sent copy of a message that failed to send: the email row and its
+ * R2 attachment blobs. Never throws, so the caller can still report the send error.
+ */
+export async function discardUnsent(
+	env: Env,
+	stub: DurableObjectStub<MailboxDO>,
+	messageId: string,
+): Promise<void> {
+	try {
+		const attachments = (await stub.deleteEmail(messageId)) ?? [];
+		if (attachments.length > 0) {
+			await env.BUCKET.delete(attachments.map((a) => `attachments/${messageId}/${a.id}/${a.filename}`));
+		}
+	} catch (e) {
+		console.error("Failed to discard unsent message", messageId, (e as Error).message);
 	}
 }
 

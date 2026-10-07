@@ -32,18 +32,21 @@ export const MailboxSettingsSchema = z
 
 export type MailboxSettings = z.infer<typeof MailboxSettingsSchema>;
 
-function promptOf(settings: MailboxSettings | null | undefined): string {
-	return settings?.agentSystemPrompt?.trim() ?? "";
+/** The prompt from validated or raw stored settings; lenient so legacy objects still compare. */
+function promptOf(settings: unknown): string {
+	const prompt = (settings as { agentSystemPrompt?: unknown } | null)?.agentSystemPrompt;
+	return typeof prompt === "string" ? prompt.trim() : "";
 }
 
 /**
  * Members may edit their mailbox's settings but not change agentSystemPrompt.
  * Re-submitting the stored prompt unchanged (as the settings UI does) is fine.
+ * `current` is the stored settings object as read from R2 (not necessarily valid).
  */
 export function canSetSettings(
 	principal: Principal,
 	next: MailboxSettings,
-	current: MailboxSettings | null,
+	current: unknown,
 ): boolean {
 	if (canAdminister(principal)) return true;
 	return promptOf(next) === promptOf(current);
