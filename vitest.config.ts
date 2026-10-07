@@ -10,6 +10,10 @@ export default defineConfig({
 			main: "./workers/app.ts",
 			remoteBindings: false,
 			wrangler: { configPath: "./wrangler.jsonc" },
+			miniflare: {
+				// Test-only domain set; production DOMAINS comes from wrangler vars.
+				bindings: { DOMAINS: "double-xl.ai, littlesaintscorner.com, roburatis.com" },
+			},
 		}),
 	],
 	resolve: {
