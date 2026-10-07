@@ -12,6 +12,8 @@ An **AI-powered Email Agent** can read your inbox, search conversations, and dra
 
 Read the blog post to learn more about Cloudflare Email Service and how to use it with the Agents SDK, MCP, and from the Wrangler CLI: [Email for Agents](https://blog.cloudflare.com/email-for-agents/).
 
+> **DoubleXL fork.** This repo runs DoubleXL's multi-domain inbox at `mail.double-xl.ai`, with envelope-recipient routing, aliases, per-principal authorization, and admin config endpoints added on top of upstream. See [docs/OPERATIONS.md](docs/OPERATIONS.md) for how it's configured and run. The upstream README follows.
+
 ## How to setup
 
 **Important**: Clicking the 'Deploy to Cloudflare' button is only one part of the setup. You must follow the **After deploying** steps as well. For a full step-by-step guide with screenshots, refer to this comment: 

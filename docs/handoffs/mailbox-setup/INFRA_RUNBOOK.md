@@ -15,6 +15,21 @@ Account facts captured 2026-10-06:
 
 ---
 
+## Status (2026-10-07)
+
+| Step | State |
+|---|---|
+| §1 R2 bucket | Done (bucket created 2026-10-07). |
+| §2 Custom domain | Done: `mail.double-xl.ai`, `workers_dev` and `preview_urls` off. |
+| §3 Access | Policies cleaned (only "Just Me" attached). `TEAM_DOMAIN` re-set to `https://dblxl.cloudflareaccess.com` (it lacked the scheme). Service Auth policy pending (§8). |
+| §4 Config + deploy | Done. Principals and aliases seeded in R2. |
+| §5 littlesaintscorner.com | Done: routing enabled, catch-all → worker. |
+| §6 double-xl.ai | Done: catch-all → worker, apex onboarded for sending, DMARC kept at `p=quarantine`. |
+| §7 roburatis.com | Done on Cloudflare: DMARC `p=none` + Google SPF + Google DKIM, then sending onboarded. Coy added the Workspace dual-delivery rule and started Google DKIM. Awaiting end-to-end test. |
+| §8 Agent tokens | Not started. Also needs a WAF rule skipping Super Bot Fight Mode on `/mcp`. |
+
+Deploy command for this repo (avoids the API token in the local `.env`): `npm run build && env -u CLOUDFLARE_API_TOKEN npx wrangler deploy --env-file /dev/null`.
+
 ## §0 Pre-flight (read-only)
 
 ```bash
@@ -63,7 +78,7 @@ Deploying in §4 creates the DNS record and certificate. Turning off `workers_de
    ```bash
    # AUD: GET /accounts/{account}/access/apps/0a71ffa7-13d1-44bb-8048-d273bd0a10e0 → result.aud
    wrangler secret put POLICY_AUD --name doublexl-agent-mail
-   wrangler secret put TEAM_DOMAIN --name doublexl-agent-mail   # https://dblxl.cloudflareaccess.com
+   wrangler secret put TEAM_DOMAIN --name doublexl-agent-mail   # https://dblxl.cloudflareaccess.com (include https://)
    ```
    Both secrets already exist from April, but their values are unknown. Re-set them so you know they match.
 
@@ -152,6 +167,7 @@ Email Routing is already on, with the rule `coy@double-xl.ai` → forward to `co
 1. **Coy does this himself in Google Workspace** (Admin console → Apps → Google Workspace → Gmail → Routing). Add a rule for recipient `coy@roburatis.com` that also delivers to `coy-roburatis@double-xl.ai`. Claude Code only provides these instructions and the target address.
    - This depends on §6.1, which makes `double-xl.ai` deliver to the worker, and on the alias in `config/aliases.json`.
 2. Onboard roburatis.com for Email Service sending, after confirming with the API spec that onboarding doesn't require enabling Email Routing on the zone. If it does, stop and ask Coy.
+   - **Do step 3 first.** Onboarding creates `_dmarc` with `p=reject` when the zone has none, and Gmail-sent mail without SPF/DKIM alignment would then bounce. (Done in this order on 2026-10-07; Google DKIM was added too.)
 3. DNS hygiene. roburatis.com has **no SPF and no DMARC** today. Propose them to Coy, and add them only with his OK:
    - apex SPF `v=spf1 include:_spf.google.com ~all` (Email Service uses its own bounce subdomain for SPF);
    - `_dmarc` `v=DMARC1; p=none; rua=mailto:…` to start; tighten later.
