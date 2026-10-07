@@ -85,7 +85,7 @@ export function getAllowedAddresses(env: Env): string[] {
 
 /** Bootstrap admins, so a missing or broken principals.json can't lock Coy out. */
 export function getAdminEmails(env: Env): string[] {
-	return normalizeList((env as { ADMIN_EMAILS?: unknown }).ADMIN_EMAILS);
+	return normalizeList(env.ADMIN_EMAILS);
 }
 
 export function domainOf(address: string): string {
