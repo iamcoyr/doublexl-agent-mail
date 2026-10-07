@@ -11,8 +11,12 @@ export default defineConfig({
 			remoteBindings: false,
 			wrangler: { configPath: "./wrangler.jsonc" },
 			miniflare: {
-				// Test-only domain set; production DOMAINS comes from wrangler vars.
-				bindings: { DOMAINS: "double-xl.ai, littlesaintscorner.com, roburatis.com" },
+				// Test-only values; production DOMAINS comes from wrangler vars and the Access ones from secrets.
+				bindings: {
+					DOMAINS: "double-xl.ai, littlesaintscorner.com, roburatis.com",
+					POLICY_AUD: "test-aud",
+					TEAM_DOMAIN: "https://test.cloudflareaccess.com",
+				},
 			},
 		}),
 	],

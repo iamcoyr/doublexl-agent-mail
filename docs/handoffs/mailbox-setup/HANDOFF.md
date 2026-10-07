@@ -211,12 +211,12 @@ Work in order. Each phase ends green on `npm run typecheck` and `npm test`, with
 
 ### Phase 2: principals and authorization
 
-- [ ] Middleware sets `principal` from the verified JWT (human via `email`, agent via `common_name`).
-- [ ] `workers/lib/authz.ts` per §4.3, wired into every row of the enforcement table.
-- [ ] Strict settings schema; `agentSystemPrompt` admin-only.
-- [ ] Admin endpoints for aliases and principals.
-- [ ] UI: principal in header, admin-gated controls, `GET /api/v1/config` returns the principal.
-- [ ] Tests: a member can't list, read, send from, or open the agent socket for a foreign mailbox (REST, MCP, `/agents/*`); an agent token sees only its mailbox; an unknown JWT subject → 403; admin sees all; the routes without a subpath (`GET`/`PUT`/`DELETE` on `/api/v1/mailboxes/:mailboxId`) are enforced.
+- [x] Middleware sets `principal` from the verified JWT (human via `email`, agent via `common_name`).
+- [x] `workers/lib/authz.ts` per §4.3, wired into every row of the enforcement table.
+- [x] Strict settings schema; `agentSystemPrompt` admin-only.
+- [x] Admin endpoints for aliases and principals.
+- [x] UI: principal in header, admin-gated controls, `GET /api/v1/config` returns the principal.
+- [x] Tests: a member can't list, read, send from, or open the agent socket for a foreign mailbox (REST, MCP, `/agents/*`); an agent token sees only its mailbox; an unknown JWT subject → 403; admin sees all; the routes without a subpath (`GET`/`PUT`/`DELETE` on `/api/v1/mailboxes/:mailboxId`) are enforced.
 
 **Done when:** the full test matrix passes, and a manual check in `wrangler dev` with forged dev principals behaves correctly.
 
