@@ -2,7 +2,7 @@
 // Replaces the upstream inline middleware in workers/app.ts.
 
 import { createMiddleware } from "hono/factory";
-import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
+import { createRemoteJWKSet, decodeJwt, jwtVerify, type JWTVerifyGetKey } from "jose";
 import type { Env } from "../types";
 import { DEV_PRINCIPAL, identityFromJwt, resolvePrincipal, type Identity, type Principal } from "./authz";
 
@@ -16,11 +16,15 @@ export type AccessContext = {
 	Variables: AccessVariables;
 };
 
+export { getAccessUrls }; // exported for tests
+
 export const DEV_IDENTITY: Identity = { kind: "human", email: "dev@localhost" };
 
+/** TEAM_DOMAIN may be a full URL or a bare hostname such as `team.cloudflareaccess.com`. */
 function getAccessUrls(teamDomain: string) {
 	const certsPath = "/cdn-cgi/access/certs";
-	const teamUrl = new URL(teamDomain);
+	const trimmed = teamDomain.trim();
+	const teamUrl = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
 	const issuer = teamUrl.origin;
 	const certsUrl = teamUrl.pathname.endsWith(certsPath)
 		? teamUrl
@@ -50,6 +54,38 @@ function getJwks(certsUrl: URL): JWTVerifyGetKey {
 		remoteJwks.set(key, jwks);
 	}
 	return jwks;
+}
+
+/**
+ * Explain a rejected token in the logs without logging the token, its
+ * identity claims, or the configured secrets: only the failure code and
+ * whether iss/aud matched what the worker expects.
+ */
+function logRejectedToken(token: string, teamDomain: string, policyAud: string, error: unknown): void {
+	let expectedIssuer: string | null = null;
+	try {
+		expectedIssuer = getAccessUrls(teamDomain).issuer;
+	} catch {
+		// TEAM_DOMAIN isn't a valid URL (e.g. missing https://).
+	}
+	let issMatches: boolean | null = null;
+	let audMatches: boolean | null = null;
+	try {
+		const claims = decodeJwt(token);
+		const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+		issMatches = expectedIssuer !== null && claims.iss === expectedIssuer;
+		audMatches = aud.includes(policyAud);
+	} catch {
+		// Not a decodable JWT at all.
+	}
+	const err = error as { code?: string; message?: string };
+	console.warn("Access JWT rejected", {
+		code: err?.code ?? "unknown",
+		message: err?.message ?? String(error),
+		teamDomainIsUrl: expectedIssuer !== null,
+		issMatches,
+		audMatches,
+	});
 }
 
 export const accessMiddleware = createMiddleware<AccessContext>(async (c, next) => {
@@ -95,7 +131,8 @@ export const accessMiddleware = createMiddleware<AccessContext>(async (c, next) 
 			audience: POLICY_AUD,
 		});
 		identity = identityFromJwt(payload);
-	} catch {
+	} catch (e) {
+		logRejectedToken(token, TEAM_DOMAIN, POLICY_AUD, e);
 		return c.text("Invalid or expired Access token", 403);
 	}
 
