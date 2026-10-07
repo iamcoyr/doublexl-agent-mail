@@ -273,6 +273,7 @@ Each domain is configuration only: add it to `DOMAINS`, enable Email Routing wit
 ### Phase 6 (optional; ask before starting)
 
 - Service-binding RPC entrypoint for internal workers (§4.5).
+- **Model and prompt selection** (requested by Coy, 2026-10-07). Today models are hard-coded: `@cf/moonshotai/kimi-k2.5` for the chat agent and auto-drafts (`workers/agent/index.ts`), `@cf/meta/llama-3.1-8b-instruct-fast` and `@cf/meta/llama-4-scout-17b-16e-instruct` for helpers (`workers/lib/ai.ts`); the only per-mailbox knob is `agentSystemPrompt`. Make the backend configurable: per-mailbox (and a deployment default) choice of model/provider for chat, auto-draft and draft verification; selectable prompt presets alongside the custom prompt; auto-draft on/off. Store in the strict settings schema (admin-only fields, like `agentSystemPrompt`), validate model ids against an allowlist, and expose it in the settings UI.
 - Inbound event hook: on delivery to an agent mailbox, enqueue `{ mailboxId, emailId, threadId }` to a Queue so agent workers react without polling.
 - Implement or remove the `forwarding` / `autoReply` settings (currently UI-only).
 - Upstream sync: merge `upstream/main` and resolve conflicts in the `// doublexl:` hooks.
