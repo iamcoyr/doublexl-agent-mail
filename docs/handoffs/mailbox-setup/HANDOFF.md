@@ -234,7 +234,12 @@ Work in order. Each phase ends green on `npm run typecheck` and `npm test`, with
 ### Phase 4: domain onboarding (runbook §5–§7)
 
 - [ ] `littlesaintscorner.com`: enable Email Routing on the apex; catch-all → worker. Create mailbox `coy@littlesaintscorner.com`. Test inbound from an outside account, and outbound reply (check DKIM/DMARC pass in the received headers).
-- [ ] `double-xl.ai`: catch-all → worker (keep the `coy@double-xl.ai` forward rule). Onboard the apex for sending per D2. Create `test-agent@double-xl.ai`.
+- [x] `double-xl.ai`: catch-all → worker (keep the `coy@double-xl.ai` forward rule). Onboard the apex for sending per D2. Create `test-agent@double-xl.ai`.
+- **Progress 2026-10-07:**
+  - littlesaintscorner.com: Email Routing enabled (apex MX/SPF + `cf2024-1` DKIM added; 16 existing records unchanged), catch-all → worker. `nobody@` rejected with 5.1.1 (verified in Email Routing logs). Outbound from the inbox delivered. Inbound to `coy@` still to re-test (first attempt never reached Cloudflare; likely the sender's cached no-MX answer).
+  - double-xl.ai: catch-all → worker (`coy@double-xl.ai` forward rule kept; it takes priority, so the `coy@double-xl.ai` mailbox stays empty by design). Apex onboarded for sending (5 `cf-bounce` records); DMARC kept at the existing `p=quarantine` per Coy, no duplicate.
+  - roburatis.com: **onboarding would have created `_dmarc p=reject` while Google has no DKIM and the apex had no SPF, which would bounce Coy's Gmail mail.** Added `_dmarc` `p=none` and apex SPF `include:_spf.google.com` first, then onboarded for sending (5 `cf-bounce` records). Apex MX untouched (`smtp.google.com`); Email Routing off. Remaining: Coy enables Google DKIM and adds the Workspace dual-delivery rule.
+  - §4.4 outbound shipped: sends only from `DOMAINS`, Email Service errors mapped to clear messages, REST sends complete before responding.
 - [ ] `roburatis.com` per D1. Default A: the `coy-roburatis@double-xl.ai` alias, a Workspace dual-delivery rule that Coy adds himself in the Google admin console, roburatis.com sending onboarding, and a DMARC record. No apex MX change.
 
 **Done when:** for each human mailbox, external → inbox works, reply → external lands in an inbox (not spam) with `dkim=pass` and `dmarc=pass`, and a CC-only test message arrives.
