@@ -1,6 +1,6 @@
 # Infra runbook: doublexl-agent-mail
 
-Every change to the live Cloudflare account (and the one in Google Workspace) needed for `docs/handoff/HANDOFF.md`, in order.
+Every change to the live Cloudflare account (and the one in Google Workspace) needed for `docs/handoffs/mailbox-setup/HANDOFF.md`, in order.
 
 **Rule:** each numbered step that changes something needs Coy's explicit OK in the session before you run it. State what you're about to change, run it, verify it, and report. Read-only checks need no approval.
 

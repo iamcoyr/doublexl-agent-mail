@@ -191,11 +191,11 @@ Work in order. Each phase ends green on `npm run typecheck` and `npm test`, with
 
 ### Phase 0: baseline (local plus read-only checks)
 
-- [ ] Add the `upstream` remote and confirm the fork still matches upstream except `package.json` / `wrangler.jsonc`.
-- [ ] `npm ci`, then `npm run typecheck` passes on untouched code. Record any pre-existing failures without fixing them yet.
-- [ ] `wrangler whoami` shows Coy's DoubleXL user on the account that owns `doublexl-agent-mail`.
-- [ ] Add Vitest with `@cloudflare/vitest-pool-workers` and an `npm test` script. Write one smoke test that boots the worker.
-- [ ] Ask Coy to settle D1–D4. Proceed with the defaults on any he defers.
+- [x] Add the `upstream` remote and confirm the fork still matches upstream except `package.json` / `wrangler.jsonc`.
+- [x] `npm ci`, then `npm run typecheck` passes on untouched code. Record any pre-existing failures without fixing them yet. *(No pre-existing failures.)*
+- [x] `wrangler whoami` shows Coy's DoubleXL user on the account that owns `doublexl-agent-mail`. *(coy@double-xl.com, account DoubleXL; §2 re-verified 2026-10-06, no differences.)*
+- [x] Add Vitest with `@cloudflare/vitest-pool-workers` and an `npm test` script. Write one smoke test that boots the worker.
+- [x] Ask Coy to settle D1–D4. Proceed with the defaults on any he defers.
 
 **Done when:** tests run in CI-equivalent locally, and the decisions are recorded in the "Decisions log" at the end of this file.
 
@@ -239,6 +239,27 @@ Work in order. Each phase ends green on `npm run typecheck` and `npm test`, with
 
 **Done when:** for each human mailbox, external → inbox works, reply → external lands in an inbox (not spam) with `dkim=pass` and `dmarc=pass`, and a CC-only test message arrives.
 
+### Phase 4b: additional brand domains (added 2026-10-06, per Coy)
+
+Each domain is configuration only: add it to `DOMAINS`, enable Email Routing with a catch-all → worker, onboard it for Email Service sending, and add a DMARC record (start `p=none`) with Coy's OK. All are Cloudflare zones in the DoubleXL account. State from a read-only check on 2026-10-06:
+
+| Domain | MX today | Email Routing | Notes |
+|---|---|---|---|
+| `littlesaintscorner.com` | none | unconfigured | Already Phase 4 (§5). Listed here so the set is complete. |
+| `fitfluencerhq.com` | none | unconfigured | No DMARC. Safe to enable routing. |
+| `backbarzen.com` | Cloudflare (`route1-3`) | **ready**, no active rules (catch-all disabled) | Just enable the catch-all → worker. No DMARC. |
+| `asecondlook.media` | none | unconfigured | No DMARC. Safe to enable routing. |
+| `gospel-db.org` | none | unconfigured | No DMARC. Safe to enable routing. |
+
+- [ ] `fitfluencerhq.com`: Email Routing + catch-all → worker; sending onboarding; DMARC.
+- [ ] `backbarzen.com`: catch-all → worker; sending onboarding; DMARC.
+- [ ] `asecondlook.media`: Email Routing + catch-all → worker; sending onboarding; DMARC.
+- [ ] `gospel-db.org`: Email Routing + catch-all → worker; sending onboarding; DMARC.
+- [ ] Add all four to `DOMAINS` (wrangler vars) and redeploy.
+- [ ] Ask Coy which mailboxes to create on each domain (human, agent, or both).
+
+**Done when:** each domain passes the same inbound / outbound (`dkim=pass`, `dmarc=pass`) / unknown-recipient-rejected checks as Phase 4.
+
 ### Phase 5: agent onboarding
 
 - [ ] For each agent from D3: create a service token, a mailbox, and a principals entry, and set the system prompt.
@@ -274,7 +295,7 @@ Work in order. Each phase ends green on `npm run typecheck` and `npm test`, with
 
 | # | Decision | Date | Notes |
 |---|---|---|---|
-| D1 | | | |
-| D2 | | | |
-| D3 | | | |
-| D4 | | | |
+| D1 | **A. Dual delivery.** Google stays primary; Workspace routing adds a copy to alias `coy-roburatis@double-xl.ai`. No MX change on roburatis.com. | 2026-10-06 | Default. |
+| D2 | **`<agent>@double-xl.ai`.** Catch-all → worker; onboard the apex for Email Service sending. | 2026-10-06 | Default. Keep the `coy@double-xl.ai` forward rule. |
+| D3 | **`test-agent`, `outreach-orchestrator`, `agent-smith`.** One mailbox + one Access service token each. | 2026-10-06 | Coy also added more mailbox domains; see Phase 4b. |
+| D4 | **Reject** unknown recipients with `5.1.1 Unknown recipient`. | 2026-10-06 | Default. |
