@@ -168,4 +168,9 @@ export const mailboxMigrations: Migration[] = [
             CREATE INDEX IF NOT EXISTS idx_emails_folder_date ON emails(folder_id, date DESC);
         `,
 	},
+	{
+		// doublexl: envelope recipient the message arrived through (e.g. an alias).
+		name: "9_add_delivered_to",
+		sql: txn(`ALTER TABLE emails ADD COLUMN delivered_to TEXT;`),
+	},
 ];

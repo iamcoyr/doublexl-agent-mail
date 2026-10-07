@@ -201,11 +201,11 @@ Work in order. Each phase ends green on `npm run typecheck` and `npm test`, with
 
 ### Phase 1: inbound routing, aliases, domain allowlist
 
-- [ ] `workers/lib/config.ts`: typed loaders for `DOMAINS`, `config/aliases.json`, `config/principals.json`, `ADMIN_EMAILS` (zod-validated, TTL cache).
-- [ ] `workers/lib/routing.ts` per §4.2.
-- [ ] `workers/app.ts` `email()` passes the envelope through; `workers/index.ts` `receiveEmail` uses `resolveInboundRecipient`.
-- [ ] New migration adding `delivered_to`. Display it in the message view.
-- [ ] Tests: envelope recipient in CC; recipient second in `To:`; BCC; alias delivery; unknown recipient → reject; domain not in `DOMAINS` → reject; `EMAIL_ADDRESSES` allowlist still honored; two of our mailboxes on one message each get exactly one copy (simulate two invocations).
+- [x] `workers/lib/config.ts`: typed loaders for `DOMAINS`, `config/aliases.json`, `config/principals.json`, `ADMIN_EMAILS` (zod-validated, TTL cache).
+- [x] `workers/lib/routing.ts` per §4.2.
+- [x] `workers/app.ts` `email()` passes the envelope through; `workers/index.ts` `receiveEmail` uses `resolveInboundRecipient`.
+- [x] New migration adding `delivered_to`. Display it in the message view.
+- [x] Tests: envelope recipient in CC; recipient second in `To:`; BCC; alias delivery; unknown recipient → reject; domain not in `DOMAINS` → reject; `EMAIL_ADDRESSES` allowlist still honored; two of our mailboxes on one message each get exactly one copy (simulate two invocations).
 
 **Done when:** every case above passes, and `wrangler dev` with a locally injected `ForwardableEmailMessage` stores mail in the right mailbox.
 

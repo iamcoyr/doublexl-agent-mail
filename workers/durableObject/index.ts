@@ -87,6 +87,7 @@ interface EmailData {
 	thread_id?: string | null;
 	message_id?: string | null;
 	raw_headers?: string | null;
+	delivered_to?: string | null; // doublexl
 }
 
 interface AttachmentData {
@@ -862,6 +863,7 @@ export class MailboxDO extends DurableObject<Env> {
 				thread_id: email.thread_id ?? null,
 				message_id: email.message_id ?? null,
 				raw_headers: email.raw_headers ?? null,
+				delivered_to: email.delivered_to ?? null, // doublexl
 			})
 			.run();
 
