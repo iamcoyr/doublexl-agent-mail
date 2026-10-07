@@ -103,8 +103,13 @@ export function isDomainAllowed(env: Env, address: string): boolean {
 type CacheEntry = { value: unknown; expiresAt: number };
 const cache = new Map<string, CacheEntry>();
 
+// Bumped on every invalidation. A load that started before an invalidation
+// must not cache its result, or it could re-cache the pre-write value.
+let generation = 0;
+
 /** Drop cached R2 config. Call after admin writes; tests call it between cases. */
 export function invalidateConfigCache(key?: string): void {
+	generation++;
 	if (key) cache.delete(key);
 	else cache.clear();
 }
@@ -124,6 +129,7 @@ async function loadR2Config<T>(
 	const hit = cache.get(key);
 	if (hit && hit.expiresAt > now) return hit.value as T;
 
+	const startedAt = generation;
 	const obj = await env.BUCKET.get(key);
 	let value: T;
 	if (!obj) {
@@ -142,7 +148,7 @@ async function loadR2Config<T>(
 		value = parsed.data;
 	}
 
-	cache.set(key, { value, expiresAt: now + CONFIG_TTL_MS });
+	if (startedAt === generation) cache.set(key, { value, expiresAt: now + CONFIG_TTL_MS });
 	return value;
 }
 
