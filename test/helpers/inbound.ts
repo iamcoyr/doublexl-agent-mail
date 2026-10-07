@@ -38,6 +38,11 @@ export function makeEnv(overrides: { EMAIL_ADDRESSES?: string[] } = {}) {
 		idFromName: (name: string) => name,
 		get: (name: string) => ({
 			fetch: async (req: Request) => {
+				// getAgentByName names the DO first; only /onNewEmail is a trigger.
+				if (new URL(req.url).pathname.startsWith("/cdn-cgi/partyserver/set-name")) {
+					expectNamedAfterMailbox(req.headers.get("x-partykit-room") ?? "", name);
+					return new Response("ok");
+				}
 				const body = await req.json<AgentTrigger>();
 				agentTriggers.push({ mailboxId: body.mailboxId, emailId: body.emailId });
 				expectNamedAfterMailbox(name, body.mailboxId);

@@ -4,6 +4,7 @@
 
 import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
+import { getAgentByName } from "agents"; // doublexl: name the agent before /onNewEmail
 import PostalMime from "postal-mime";
 import { z } from "zod";
 import { storeAttachments, type StoredAttachment } from "./lib/attachments";
@@ -429,11 +430,12 @@ async function receiveEmail(message: InboundMessage, env: Env, ctx: ExecutionCon
 		delivered_to: deliveredTo, // doublexl
 	}, attachmentData);
 
-	const agentStub = env.EMAIL_AGENT.get(env.EMAIL_AGENT.idFromName(mailboxId));
-	ctx.waitUntil(agentStub.fetch(new Request("https://agents/onNewEmail", {
+	// doublexl: getAgentByName does partyserver's set-name handshake, so an agent
+	// that was never opened in the UI still accepts /onNewEmail (upstream #57/#65).
+	ctx.waitUntil(getAgentByName(env.EMAIL_AGENT, mailboxId).then((agentStub) => agentStub.fetch(new Request("https://agents/onNewEmail", {
 		method: "POST", headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ mailboxId, emailId: messageId, sender: (parsedEmail.from?.address || "").toLowerCase(), subject: parsedEmail.subject || "", threadId }),
-	})).catch((e) => console.error("Auto-draft trigger failed:", (e as Error).message)));
+	}))).catch((e) => console.error("Auto-draft trigger failed:", (e as Error).message)));
 }
 
 export { app, receiveEmail };
