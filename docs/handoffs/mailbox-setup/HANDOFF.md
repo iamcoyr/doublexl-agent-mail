@@ -52,9 +52,9 @@ Each principal sees only the mailboxes it's allowed to. Coy, as admin, sees ever
 | Item | State |
 |---|---|
 | Access team domain | `dblxl.cloudflareaccess.com` |
-| Access app `agent-mail` | id `0a71ffa7-13d1-44bb-8048-d273bd0a10e0`, self-hosted, domain `agent-mail.double-xl.ai`, session 24h |
+| Access app `agent-mail` | id `0a71ffa7-13d1-44bb-8048-d273bd0a10e0`, self-hosted, domain `mail.double-xl.ai`, session 24h |
 | Access app policies | **"Just Me"** (allow `coy@double-xl.com`, `coy@robison.family`); an onboarding allow for `coy@double-xl.com`; **"Worker API Bypass"** (bypass, misusing `common_name` for paths `/api/public/*`, `/healthz`); **"cms-bypass-policy"** (bypass for a group). The two bypass policies look copied from another app. They should go; see the runbook. |
-| DNS `agent-mail.double-xl.ai` | **No record.** The Access app protects a hostname that doesn't resolve. |
+| DNS `mail.double-xl.ai` | **No record.** The Access app protects a hostname that doesn't resolve. |
 | Existing service tokens | `doublexl-admin-cert`, `gospel-collection-service`, `inbox-monitor`, `guest-portal-worker`. None are for this app yet. |
 | Email Service quota | 5,000/day, 7 sent today |
 
@@ -179,7 +179,7 @@ Both validate with zod and write atomically (single R2 put).
 ### 4.5 Agents
 
 - Each agent gets: one mailbox, one Access service token, and one `principals.json` entry mapping the token's Client ID to its mailbox.
-- Connection: MCP over `https://agent-mail.double-xl.ai/mcp` with `CF-Access-Client-Id` / `CF-Access-Client-Secret` headers. The Access app needs a **Service Auth** policy for these tokens; the runbook covers it.
+- Connection: MCP over `https://mail.double-xl.ai/mcp` with `CF-Access-Client-Id` / `CF-Access-Client-Secret` headers. The Access app needs a **Service Auth** policy for these tokens; the runbook covers it.
 - Per-agent behavior is the existing `agentSystemPrompt` mailbox setting (admin-only after 4.3).
 - Optional, Phase 6: internal DoubleXL workers (`studio-os`, `outreach-orchestrator`, …) call the inbox over a **service binding** instead of public MCP. Expose a typed `WorkerEntrypoint` RPC class with the caller identity bound per service binding, and reuse `authz.ts`.
 
@@ -222,14 +222,14 @@ Work in order. Each phase ends green on `npm run typecheck` and `npm test`, with
 
 ### Phase 3: account setup and first deploy (runbook §1–§4; Coy approves each step)
 
-- [ ] Create the R2 bucket `doublexl-agent-mail`.
-- [ ] Add `agent-mail.double-xl.ai` as a Worker custom domain (in `wrangler.jsonc` `routes` with `custom_domain: true`).
-- [ ] Clean up the Access app policies; add a Service Auth policy.
-- [ ] Set `POLICY_AUD` (the `agent-mail` app's AUD) and `TEAM_DOMAIN=https://dblxl.cloudflareaccess.com`.
-- [ ] Set vars `DOMAINS` and `ADMIN_EMAILS`. Seed `config/principals.json` and `config/aliases.json`.
-- [ ] Deploy. Verify: `workers.dev` returns 403; `agent-mail.double-xl.ai` behind Access loads the UI as Coy.
+- [x] Create the R2 bucket `doublexl-agent-mail`.
+- [x] Add `mail.double-xl.ai` as a Worker custom domain (in `wrangler.jsonc` `routes` with `custom_domain: true`).
+- [x] Clean up the Access app policies (only "Just Me" attached, 2026-10-07). The Service Auth policy moves to Phase 5, once agent tokens exist.
+- [x] Set `POLICY_AUD` (the `agent-mail` app's AUD) and `TEAM_DOMAIN=https://dblxl.cloudflareaccess.com`. *(Coy confirmed the existing values, 2026-10-07.)*
+- [x] Set vars `DOMAINS` and `ADMIN_EMAILS`. Seed `config/principals.json` and `config/aliases.json`.
+- [x] Deploy. Verify: `workers.dev` returns 403; `mail.double-xl.ai` behind Access loads the UI as Coy.
 
-**Done when:** Coy can sign in at `https://agent-mail.double-xl.ai` and create mailboxes on each configured domain.
+**Done when:** Coy can sign in at `https://mail.double-xl.ai` and create mailboxes on each configured domain.
 
 ### Phase 4: domain onboarding (runbook §5–§7)
 
@@ -262,6 +262,8 @@ Each domain is configuration only: add it to `DOMAINS`, enable Email Routing wit
 
 ### Phase 5: agent onboarding
 
+- [ ] Add the Access **Service Auth** policy for the agent tokens (deferred from Phase 3).
+- [ ] **Super Bot Fight Mode** on double-xl.ai sends "definitely automated" traffic to a managed challenge, which blocks non-browser MCP clients before Access. Add a WAF custom rule that skips Super Bot Fight Mode for `http.host eq "mail.double-xl.ai" and starts_with(http.request.uri.path, "/mcp")` (ask Coy first).
 - [ ] For each agent from D3: create a service token, a mailbox, and a principals entry, and set the system prompt.
 - [ ] Write `docs/agents.md`: MCP client config for Claude Code / Claude Desktop / the agents SDK using service-token headers, and how to add an agent.
 - [ ] Verify `test-agent` over MCP: it sees only its mailbox, can read, draft, and send; a foreign `mailboxId` is refused.
@@ -299,3 +301,4 @@ Each domain is configuration only: add it to `DOMAINS`, enable Email Routing wit
 | D2 | **`<agent>@double-xl.ai`.** Catch-all → worker; onboard the apex for Email Service sending. | 2026-10-06 | Default. Keep the `coy@double-xl.ai` forward rule. |
 | D3 | **`test-agent`, `outreach-orchestrator`, `agent-smith`.** One mailbox + one Access service token each. | 2026-10-06 | Coy also added more mailbox domains; see Phase 4b. |
 | D4 | **Reject** unknown recipients with `5.1.1 Unknown recipient`. | 2026-10-06 | Default. |
+| Host | App hostname is **`mail.double-xl.ai`** (was planned as `agent-mail.double-xl.ai`). Access app `agent-mail` already points there; same AUD. | 2026-10-07 | Coy. `mail.double-xl.ai` is also the Email Service sending subdomain; its records live on `cf-bounce.mail…` / `_dmarc.mail…`, so the Worker custom domain doesn't conflict. |

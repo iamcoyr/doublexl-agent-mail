@@ -3,6 +3,12 @@
 	"name": "doublexl-agent-mail",
 	"compatibility_date": "2025-11-28",
 	"main": "./workers/app.ts",
+	// doublexl: serve only on the Access-protected custom domain; no public workers.dev URL.
+	"routes": [
+		{ "pattern": "mail.double-xl.ai", "custom_domain": true }
+	],
+	"workers_dev": false,
+	"preview_urls": false,
 	"observability": {
 		"enabled": true
 	},
@@ -13,7 +19,7 @@
 		// Production deploys must also define POLICY_AUD and TEAM_DOMAIN.
 		// TEAM_DOMAIN may be the base Access URL or the full /cdn-cgi/access/certs URL.
 		// The worker now fails closed outside local development if Access is not configured.
-		"DOMAINS": "double-xl.ai",
+		"DOMAINS": "double-xl.ai, littlesaintscorner.com, roburatis.com",
 		"EMAIL_ADDRESSES": [],
 		// doublexl: bootstrap admins (must match the Access policy identities).
 		"ADMIN_EMAILS": ["coy@double-xl.com", "coy@robison.family"]

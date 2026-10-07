@@ -10,7 +10,7 @@ Account facts captured 2026-10-06:
 
 - Worker: `doublexl-agent-mail`
 - Access team domain: `https://dblxl.cloudflareaccess.com`
-- Access app: `agent-mail`, id `0a71ffa7-13d1-44bb-8048-d273bd0a10e0`, domain `agent-mail.double-xl.ai`
+- Access app: `agent-mail`, id `0a71ffa7-13d1-44bb-8048-d273bd0a10e0`, domain `mail.double-xl.ai`
 - Look up zone IDs with `GET /zones?name=<domain>`. Don't hard-code them.
 
 ---
@@ -45,14 +45,14 @@ Add to `wrangler.jsonc` (committed; hostnames aren't secret):
 
 ```jsonc
 "routes": [
-  { "pattern": "agent-mail.double-xl.ai", "custom_domain": true }
+  { "pattern": "mail.double-xl.ai", "custom_domain": true }
 ],
 "workers_dev": false
 ```
 
 Deploying in §4 creates the DNS record and certificate. Turning off `workers_dev` removes the unprotected `*.workers.dev` URL.
 
-**Verify** (after §4): `dig agent-mail.double-xl.ai` resolves to Cloudflare; the workers.dev URL is gone.
+**Verify** (after §4): `dig mail.double-xl.ai` resolves to Cloudflare; the workers.dev URL is gone.
 
 ## §3 Access app and service auth (Phase 3)
 
@@ -67,7 +67,7 @@ Deploying in §4 creates the DNS record and certificate. Turning off `workers_de
    ```
    Both secrets already exist from April, but their values are unknown. Re-set them so you know they match.
 
-**Verify** (after §4): in a private window, `https://agent-mail.double-xl.ai` redirects to the Access login. After login as `coy@double-xl.com` the UI loads. `curl` without credentials gets the Access login page, not the app.
+**Verify** (after §4): in a private window, `https://mail.double-xl.ai` redirects to the Access login. After login as `coy@double-xl.com` the UI loads. `curl` without credentials gets the Access login page, not the app.
 
 ## §4 Configuration and deploy (Phase 3)
 
@@ -181,7 +181,7 @@ MCP client config for the agent (documented in `docs/agents.md`, Phase 5):
   "mcpServers": {
     "agent-mail": {
       "type": "http",
-      "url": "https://agent-mail.double-xl.ai/mcp",
+      "url": "https://mail.double-xl.ai/mcp",
       "headers": {
         "CF-Access-Client-Id": "${AGENT_MAIL_CLIENT_ID}",
         "CF-Access-Client-Secret": "${AGENT_MAIL_CLIENT_SECRET}"
