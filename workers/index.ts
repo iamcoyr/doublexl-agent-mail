@@ -6,7 +6,6 @@ import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import PostalMime from "postal-mime";
 import { z } from "zod";
-import { sendEmail } from "./email-sender";
 import { storeAttachments, type StoredAttachment } from "./lib/attachments";
 import {
 	validateSender,
@@ -25,6 +24,7 @@ import { canAccessMailbox, canAdminister, publicPrincipal } from "./lib/authz"; 
 import { isDomainAllowed } from "./lib/config"; // doublexl
 import { MailboxSettingsSchema, canSetSettings, describeZodError, type MailboxSettings } from "./lib/settings"; // doublexl
 import { adminApp } from "./routes/admin"; // doublexl
+import { OutboundError, sendFromMailbox } from "./lib/outbound"; // doublexl
 
 type AppContext = Context<MailboxContext>;
 
@@ -225,13 +225,18 @@ app.post("/api/v1/mailboxes/:mailboxId/emails", async (c: AppContext) => {
 		]),
 	}, attachmentData);
 
-	c.executionCtx.waitUntil(
-		sendEmail(c.env.EMAIL, {
+	// doublexl: send before answering so failures reach the caller; drop the Sent copy on failure.
+	try {
+		await sendFromMailbox(c.env, {
 			to, cc, bcc, from, subject, html, text,
 			attachments: attachments?.map((att) => ({ content: att.content, filename: att.filename, type: att.type, disposition: att.disposition || "attachment", contentId: att.contentId })),
 			...(in_reply_to ? { headers: buildThreadingHeaders(in_reply_to, references || []) } : {}),
-		}).catch((e) => console.error("Deferred email delivery failed:", (e as Error).message)),
-	);
+		});
+	} catch (e) {
+		await stub.deleteEmail(messageId);
+		if (e instanceof OutboundError) return c.json({ error: e.message }, e.status);
+		throw e;
+	}
 	return c.json({ id: messageId, status: "sent" }, 202);
 });
 
