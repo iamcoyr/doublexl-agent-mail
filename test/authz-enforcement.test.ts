@@ -192,6 +192,20 @@ describe("admin endpoints", () => {
 		expect((await call("/api/v1/admin/aliases", { token: adminToken, method: "PUT", body: { x: "not-an-email" } })).status).toBe(400);
 	});
 
+	it("refuses aliases that would shadow a mailbox, and mailboxes at an alias address", async () => {
+		const putAliases = (body: object) => call("/api/v1/admin/aliases", { token: adminToken, method: "PUT", body });
+		expect((await putAliases({ [LSC]: ROBURATIS })).status).toBe(400);
+		expect((await putAliases({ "x@double-xl.ai": "x@double-xl.ai" })).status).toBe(400);
+
+		expect((await putAliases({ "coy-roburatis@double-xl.ai": ROBURATIS })).status).toBe(200);
+		const create = await call("/api/v1/mailboxes", {
+			token: adminToken,
+			method: "POST",
+			body: { email: "coy-roburatis@double-xl.ai", name: "x" },
+		});
+		expect(create.status).toBe(400);
+	});
+
 	it("rejects duplicate principals and applies new grants", async () => {
 		const dup = [
 			{ kind: "human", id: "a", email: MEMBER, role: "member", mailboxes: [] },

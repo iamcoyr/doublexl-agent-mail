@@ -131,8 +131,10 @@ export default function HomeRoute() {
 	};
 
 	const isConfigured = emailAddresses.length > 0;
+	// doublexl: non-admins only see configured addresses the API lets them access.
+	const visible = new Set(mailboxes.map((m) => m.email.toLowerCase()));
 	const accounts = isConfigured
-		? emailAddresses.map((addr) => ({
+		? emailAddresses.filter((addr) => isAdmin || visible.has(addr.toLowerCase())).map((addr) => ({
 				id: addr,
 				email: addr,
 				name: addr.split("@")[0] || addr,

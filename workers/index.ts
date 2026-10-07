@@ -21,7 +21,7 @@ import type { Env } from "./types";
 import { requireMailbox, type MailboxContext } from "./lib/mailbox";
 import { resolveInboundRecipient, type InboundMessage } from "./lib/routing"; // doublexl
 import { canAccessMailbox, canAdminister, publicPrincipal } from "./lib/authz"; // doublexl
-import { getDomains, isDomainAllowed } from "./lib/config"; // doublexl
+import { getDomains, isDomainAllowed, loadAliases } from "./lib/config"; // doublexl
 import { MailboxSettingsSchema, canSetSettings, describeZodError } from "./lib/settings"; // doublexl
 import { adminApp } from "./routes/admin"; // doublexl
 import { OutboundError, discardUnsent, sendFromMailbox, sendingDomainError } from "./lib/outbound"; // doublexl
@@ -113,6 +113,7 @@ app.post("/api/v1/mailboxes", async (c) => {
 	const { name, settings, email: rawEmail } = body.data;
 	const email = rawEmail.toLowerCase();
 	if (!isDomainAllowed(c.env, email)) return c.json({ error: `Domain of ${email} is not in DOMAINS` }, 400);
+	if ((await loadAliases(c.env))[email]) return c.json({ error: `${email} is an alias; remove the alias first` }, 400); // doublexl: alias routing would win
 	const allowedAddresses = (c.env.EMAIL_ADDRESSES ?? []) as string[];
 	if (allowedAddresses.length > 0 && !allowedAddresses.map((a) => a.toLowerCase()).includes(email)) {
 		return c.json({ error: "Mailbox creation is restricted to configured EMAIL_ADDRESSES" }, 403);

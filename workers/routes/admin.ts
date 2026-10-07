@@ -44,6 +44,14 @@ adminApp.get("/api/v1/admin/aliases", async (c) => c.json(await loadAliases(c.en
 adminApp.put("/api/v1/admin/aliases", async (c) => {
 	const parsed = AliasesSchema.safeParse(await c.req.json().catch(() => undefined));
 	if (!parsed.success) return c.json({ error: describeZodError(parsed.error) }, 400);
+	// An alias wins over a mailbox at the same address in routing, so it would
+	// silently divert that mailbox's mail; aliasing an address to itself is meaningless.
+	for (const [alias, target] of Object.entries(parsed.data)) {
+		if (alias === target) return c.json({ error: `Alias ${alias} points to itself` }, 400);
+		if (await c.env.BUCKET.head(`mailboxes/${alias}.json`)) {
+			return c.json({ error: `${alias} is an existing mailbox; delete the mailbox before using it as an alias` }, 400);
+		}
+	}
 	await c.env.BUCKET.put(ALIASES_KEY, JSON.stringify(parsed.data, null, 2), {
 		httpMetadata: { contentType: "application/json" },
 	});
