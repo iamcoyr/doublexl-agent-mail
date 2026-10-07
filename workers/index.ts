@@ -21,6 +21,10 @@ import { Folders } from "../shared/folders";
 import type { Env } from "./types";
 import { requireMailbox, type MailboxContext } from "./lib/mailbox";
 import { resolveInboundRecipient, type InboundMessage } from "./lib/routing"; // doublexl
+import { canAccessMailbox, canAdminister, publicPrincipal } from "./lib/authz"; // doublexl
+import { isDomainAllowed } from "./lib/config"; // doublexl
+import { MailboxSettingsSchema, canSetSettings, describeZodError, type MailboxSettings } from "./lib/settings"; // doublexl
+import { adminApp } from "./routes/admin"; // doublexl
 
 type AppContext = Context<MailboxContext>;
 
@@ -29,7 +33,7 @@ type AppContext = Context<MailboxContext>;
 const CreateMailboxBody = z.object({
 	email: z.string().email(),
 	name: z.string().min(1),
-	settings: z.record(z.any()).optional(), // unvalidated — agentSystemPrompt goes straight to AI
+	settings: MailboxSettingsSchema.optional(), // doublexl: strict schema (was z.record(z.any()))
 });
 
 const DraftBody = z.object({
@@ -83,6 +87,7 @@ app.use("/api/*", cors({
 	},
 }));
 app.use("/api/v1/mailboxes/:mailboxId/*", requireMailbox);
+app.route("/", adminApp); // doublexl: /api/v1/admin/*
 
 // -- Config ---------------------------------------------------------
 
@@ -90,19 +95,25 @@ app.get("/api/v1/config", (c) => {
 	const domainsRaw = c.env.DOMAINS || "";
 	const domains = domainsRaw.split(",").map((d) => d.trim()).filter(Boolean);
 	const emailAddresses = c.env.EMAIL_ADDRESSES ?? [];
-	return c.json({ domains, emailAddresses });
+	return c.json({ domains, emailAddresses, principal: publicPrincipal(c.var.principal) }); // doublexl: + principal
 });
 
 // -- Mailboxes ------------------------------------------------------
 
 app.get("/api/v1/mailboxes", async (c) => {
-	const allMailboxes = await listMailboxes(c.env.BUCKET);
+	const allMailboxes = (await listMailboxes(c.env.BUCKET))
+		.filter((m) => canAccessMailbox(c.var.principal, m.id)); // doublexl
 	return c.json(allMailboxes.map((m) => ({ ...m, name: m.id })));
 });
 
 app.post("/api/v1/mailboxes", async (c) => {
-	const { name, settings, email: rawEmail } = CreateMailboxBody.parse(await c.req.json());
+	// doublexl: admin-only, validated body, domain must be in DOMAINS.
+	if (!canAdminister(c.var.principal)) return c.json({ error: "Forbidden" }, 403);
+	const body = CreateMailboxBody.safeParse(await c.req.json().catch(() => undefined));
+	if (!body.success) return c.json({ error: describeZodError(body.error) }, 400);
+	const { name, settings, email: rawEmail } = body.data;
 	const email = rawEmail.toLowerCase();
+	if (!isDomainAllowed(c.env, email)) return c.json({ error: `Domain of ${email} is not in DOMAINS` }, 400);
 	const allowedAddresses = (c.env.EMAIL_ADDRESSES ?? []) as string[];
 	if (allowedAddresses.length > 0 && !allowedAddresses.map((a) => a.toLowerCase()).includes(email)) {
 		return c.json({ error: "Mailbox creation is restricted to configured EMAIL_ADDRESSES" }, 403);
@@ -119,6 +130,7 @@ app.post("/api/v1/mailboxes", async (c) => {
 
 app.get("/api/v1/mailboxes/:mailboxId", async (c) => {
 	const mailboxId = c.req.param("mailboxId")!;
+	if (!canAccessMailbox(c.var.principal, mailboxId)) return c.json({ error: "Forbidden" }, 403); // doublexl
 	const obj = await c.env.BUCKET.get(`mailboxes/${mailboxId}.json`);
 	if (!obj) return c.json({ error: "Not found" }, 404);
 	return c.json({ id: mailboxId, name: mailboxId, email: mailboxId, settings: await obj.json() });
@@ -126,15 +138,26 @@ app.get("/api/v1/mailboxes/:mailboxId", async (c) => {
 
 app.put("/api/v1/mailboxes/:mailboxId", async (c) => {
 	const mailboxId = c.req.param("mailboxId")!;
-	const { settings } = (await c.req.json()) as { settings: Record<string, unknown> };
+	// doublexl: authorize, validate settings strictly, agentSystemPrompt admin-only.
+	if (!canAccessMailbox(c.var.principal, mailboxId)) return c.json({ error: "Forbidden" }, 403);
+	const body = z.object({ settings: MailboxSettingsSchema }).safeParse(await c.req.json().catch(() => undefined));
+	if (!body.success) return c.json({ error: describeZodError(body.error) }, 400);
+	const { settings } = body.data;
 	const key = `mailboxes/${mailboxId}.json`;
-	if (!(await c.env.BUCKET.head(key))) return c.json({ error: "Not found" }, 404);
+	const existing = await c.env.BUCKET.get(key);
+	if (!existing) return c.json({ error: "Not found" }, 404);
+	const current = MailboxSettingsSchema.safeParse(await existing.json().catch(() => null));
+	const currentSettings: MailboxSettings | null = current.success ? current.data : null;
+	if (!canSetSettings(c.var.principal, settings, currentSettings)) {
+		return c.json({ error: "Only admins can change agentSystemPrompt" }, 403);
+	}
 	await c.env.BUCKET.put(key, JSON.stringify(settings));
 	return c.json({ id: mailboxId, name: mailboxId, email: mailboxId, settings });
 });
 
 app.delete("/api/v1/mailboxes/:mailboxId", async (c) => {
 	const mailboxId = c.req.param("mailboxId")!;
+	if (!canAdminister(c.var.principal)) return c.json({ error: "Forbidden" }, 403); // doublexl
 	const key = `mailboxes/${mailboxId}.json`;
 	if (!(await c.env.BUCKET.head(key))) return c.json({ error: "Not found" }, 404);
 	await c.env.BUCKET.delete(key); // TODO: also delete DO data and R2 attachment blobs
