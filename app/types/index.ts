@@ -16,6 +16,20 @@ export interface MailboxSettings {
 	agentSystemPrompt?: string;
 }
 
+// doublexl: the signed-in principal, as returned by GET /api/v1/config
+export interface PrincipalInfo {
+	kind: "human" | "agent";
+	id: string;
+	email?: string;
+	role: "admin" | "member";
+}
+
+export interface AppConfig {
+	domains: string[];
+	emailAddresses: string[];
+	principal: PrincipalInfo;
+}
+
 export interface Mailbox {
 	id: string;
 	email: string;
@@ -40,6 +54,7 @@ export interface Email {
 	email_references?: string | null;
 	message_id?: string | null;
 	raw_headers?: string | null;
+	delivered_to?: string | null; // doublexl: envelope recipient, e.g. an alias
 	attachments?: Attachment[];
 	snippet?: string | null;
 	// Thread aggregate fields (only present in threaded list view)

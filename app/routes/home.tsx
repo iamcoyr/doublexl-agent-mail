@@ -40,6 +40,7 @@ export default function HomeRoute() {
 		staleTime: Infinity, // config rarely changes
 	});
 
+	const isAdmin = configData?.principal.role === "admin"; // doublexl
 	const domains = configData?.domains ?? [];
 	const emailAddresses = configData?.emailAddresses ?? [];
 
@@ -67,6 +68,7 @@ export default function HomeRoute() {
 	const autoCreateDone = useRef(false);
 	useEffect(() => {
 		if (autoCreateDone.current) return;
+		if (!isAdmin) return; // doublexl: only admins can create mailboxes
 		if (emailAddresses.length === 0 || !mailboxesFetched) return;
 		const existingEmails = new Set(
 			mailboxes.map((m) => m.email.toLowerCase()),
@@ -87,7 +89,7 @@ export default function HomeRoute() {
 			}),
 		).then(() => { if (!cancelled) refetchMailboxes(); });
 		return () => { cancelled = true; };
-	}, [emailAddresses, mailboxes, refetchMailboxes]);
+	}, [emailAddresses, mailboxes, refetchMailboxes, isAdmin]);
 
 	const handleCreate = async (e: FormEvent) => {
 		e.preventDefault();
@@ -129,8 +131,10 @@ export default function HomeRoute() {
 	};
 
 	const isConfigured = emailAddresses.length > 0;
+	// doublexl: non-admins only see configured addresses the API lets them access.
+	const visible = new Set(mailboxes.map((m) => m.email.toLowerCase()));
 	const accounts = isConfigured
-		? emailAddresses.map((addr) => ({
+		? emailAddresses.filter((addr) => isAdmin || visible.has(addr.toLowerCase())).map((addr) => ({
 				id: addr,
 				email: addr,
 				name: addr.split("@")[0] || addr,
@@ -145,7 +149,7 @@ export default function HomeRoute() {
 				<div className="mb-8">
 					<div className="flex items-center justify-between">
 						<h1 className="text-2xl font-bold text-kumo-default">Mailboxes</h1>
-						{!isConfigured && (
+						{!isConfigured && isAdmin && (
 							<Button
 								variant="primary"
 								icon={<PlusIcon size={16} />}
@@ -187,7 +191,7 @@ export default function HomeRoute() {
 										{account.email}
 									</div>
 								</div>
-								{!isConfigured && (
+								{!isConfigured && isAdmin && (
 									<Button
 										variant="ghost"
 										size="sm"
@@ -226,7 +230,7 @@ export default function HomeRoute() {
 									? "Your email routing is configured but no mailboxes have been created yet. They will appear here automatically."
 									: "Create a mailbox to start sending and receiving emails with your domain."}
 							</p>
-							{!isConfigured && (
+							{!isConfigured && isAdmin && (
 								<Button
 									variant="primary"
 									icon={<PlusIcon size={16} />}

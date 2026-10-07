@@ -3,7 +3,7 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import type { Context } from "hono";
-import { sendEmail } from "../email-sender";
+import { OutboundError, discardUnsent, sendFromMailbox, sendingDomainError } from "../lib/outbound"; // doublexl: was sendEmail
 import { storeAttachments } from "../lib/attachments";
 import type { EmailFull } from "../lib/schemas";
 import {
@@ -44,6 +44,8 @@ export async function handleReplyEmail(c: AppContext) {
 		if (e instanceof SenderValidationError) return c.json({ error: e.message }, 400);
 		throw e;
 	}
+	const domainError = sendingDomainError(c.env, fromEmail); // doublexl: before any send work
+	if (domainError) return c.json({ error: domainError }, 400);
 
 	const { messageId, outgoingMessageId } = generateMessageId(fromDomain);
 
@@ -87,8 +89,9 @@ export async function handleReplyEmail(c: AppContext) {
 
 	await stub.markThreadRead(thread_id);
 
-	c.executionCtx.waitUntil(
-		sendEmail(c.env.EMAIL, {
+	// doublexl: send before answering so failures reach the caller; drop the Sent copy on failure.
+	try {
+		await sendFromMailbox(c.env, {
 			to,
 			cc,
 			bcc,
@@ -104,10 +107,12 @@ export async function handleReplyEmail(c: AppContext) {
 				contentId: att.contentId,
 			})),
 			headers: buildThreadingHeaders(originalMsgId, references),
-		}).catch((e) => {
-			console.error("Deferred reply delivery failed:", (e as Error).message);
-		}),
-	);
+		});
+	} catch (e) {
+		await discardUnsent(c.env, stub, messageId);
+		if (e instanceof OutboundError) return c.json({ error: e.message }, e.status);
+		throw e;
+	}
 
 	return c.json({ id: messageId, status: "sent" }, 202);
 }
@@ -134,6 +139,8 @@ export async function handleForwardEmail(c: AppContext) {
 		if (e instanceof SenderValidationError) return c.json({ error: e.message }, 400);
 		throw e;
 	}
+	const domainError = sendingDomainError(c.env, fromEmail); // doublexl: before any send work
+	if (domainError) return c.json({ error: domainError }, 400);
 
 	const { messageId, outgoingMessageId } = generateMessageId(fromDomain);
 
@@ -173,8 +180,9 @@ export async function handleForwardEmail(c: AppContext) {
 		attachmentData,
 	);
 
-	c.executionCtx.waitUntil(
-		sendEmail(c.env.EMAIL, {
+	// doublexl: send before answering so failures reach the caller; drop the Sent copy on failure.
+	try {
+		await sendFromMailbox(c.env, {
 			to,
 			cc,
 			bcc,
@@ -189,10 +197,12 @@ export async function handleForwardEmail(c: AppContext) {
 				disposition: att.disposition,
 				contentId: att.contentId,
 			})),
-		}).catch((e) => {
-			console.error("Deferred forward delivery failed:", (e as Error).message);
-		}),
-	);
+		});
+	} catch (e) {
+		await discardUnsent(c.env, stub, messageId);
+		if (e instanceof OutboundError) return c.json({ error: e.message }, e.status);
+		throw e;
+	}
 
 	return c.json({ id: messageId, status: "sent" }, 202);
 }

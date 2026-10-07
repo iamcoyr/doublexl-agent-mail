@@ -6,7 +6,6 @@ import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import PostalMime from "postal-mime";
 import { z } from "zod";
-import { sendEmail } from "./email-sender";
 import { storeAttachments, type StoredAttachment } from "./lib/attachments";
 import {
 	validateSender,
@@ -20,6 +19,12 @@ import { handleReplyEmail, handleForwardEmail } from "./routes/reply-forward";
 import { Folders } from "../shared/folders";
 import type { Env } from "./types";
 import { requireMailbox, type MailboxContext } from "./lib/mailbox";
+import { resolveInboundRecipient, type InboundMessage } from "./lib/routing"; // doublexl
+import { canAccessMailbox, canAdminister, publicPrincipal } from "./lib/authz"; // doublexl
+import { getDomains, isDomainAllowed, loadAliases } from "./lib/config"; // doublexl
+import { MailboxSettingsSchema, canSetSettings, describeZodError } from "./lib/settings"; // doublexl
+import { adminApp } from "./routes/admin"; // doublexl
+import { OutboundError, discardUnsent, sendFromMailbox, sendingDomainError } from "./lib/outbound"; // doublexl
 
 type AppContext = Context<MailboxContext>;
 
@@ -28,7 +33,7 @@ type AppContext = Context<MailboxContext>;
 const CreateMailboxBody = z.object({
 	email: z.string().email(),
 	name: z.string().min(1),
-	settings: z.record(z.any()).optional(), // unvalidated — agentSystemPrompt goes straight to AI
+	settings: MailboxSettingsSchema.optional(), // doublexl: strict schema (was z.record(z.any()))
 });
 
 const DraftBody = z.object({
@@ -82,26 +87,33 @@ app.use("/api/*", cors({
 	},
 }));
 app.use("/api/v1/mailboxes/:mailboxId/*", requireMailbox);
+app.route("/", adminApp); // doublexl: /api/v1/admin/*
 
 // -- Config ---------------------------------------------------------
 
 app.get("/api/v1/config", (c) => {
-	const domainsRaw = c.env.DOMAINS || "";
-	const domains = domainsRaw.split(",").map((d) => d.trim()).filter(Boolean);
+	const domains = getDomains(c.env); // doublexl: same parsing as the server-side allowlist
 	const emailAddresses = c.env.EMAIL_ADDRESSES ?? [];
-	return c.json({ domains, emailAddresses });
+	return c.json({ domains, emailAddresses, principal: publicPrincipal(c.var.principal) }); // doublexl: + principal
 });
 
 // -- Mailboxes ------------------------------------------------------
 
 app.get("/api/v1/mailboxes", async (c) => {
-	const allMailboxes = await listMailboxes(c.env.BUCKET);
+	const allMailboxes = (await listMailboxes(c.env.BUCKET))
+		.filter((m) => canAccessMailbox(c.var.principal, m.id)); // doublexl
 	return c.json(allMailboxes.map((m) => ({ ...m, name: m.id })));
 });
 
 app.post("/api/v1/mailboxes", async (c) => {
-	const { name, settings, email: rawEmail } = CreateMailboxBody.parse(await c.req.json());
+	// doublexl: admin-only, validated body, domain must be in DOMAINS.
+	if (!canAdminister(c.var.principal)) return c.json({ error: "Forbidden" }, 403);
+	const body = CreateMailboxBody.safeParse(await c.req.json().catch(() => undefined));
+	if (!body.success) return c.json({ error: describeZodError(body.error) }, 400);
+	const { name, settings, email: rawEmail } = body.data;
 	const email = rawEmail.toLowerCase();
+	if (!isDomainAllowed(c.env, email)) return c.json({ error: `Domain of ${email} is not in DOMAINS` }, 400);
+	if ((await loadAliases(c.env))[email]) return c.json({ error: `${email} is an alias; remove the alias first` }, 400); // doublexl: alias routing would win
 	const allowedAddresses = (c.env.EMAIL_ADDRESSES ?? []) as string[];
 	if (allowedAddresses.length > 0 && !allowedAddresses.map((a) => a.toLowerCase()).includes(email)) {
 		return c.json({ error: "Mailbox creation is restricted to configured EMAIL_ADDRESSES" }, 403);
@@ -118,6 +130,7 @@ app.post("/api/v1/mailboxes", async (c) => {
 
 app.get("/api/v1/mailboxes/:mailboxId", async (c) => {
 	const mailboxId = c.req.param("mailboxId")!;
+	if (!canAccessMailbox(c.var.principal, mailboxId)) return c.json({ error: "Forbidden" }, 403); // doublexl
 	const obj = await c.env.BUCKET.get(`mailboxes/${mailboxId}.json`);
 	if (!obj) return c.json({ error: "Not found" }, 404);
 	return c.json({ id: mailboxId, name: mailboxId, email: mailboxId, settings: await obj.json() });
@@ -125,15 +138,24 @@ app.get("/api/v1/mailboxes/:mailboxId", async (c) => {
 
 app.put("/api/v1/mailboxes/:mailboxId", async (c) => {
 	const mailboxId = c.req.param("mailboxId")!;
-	const { settings } = (await c.req.json()) as { settings: Record<string, unknown> };
+	// doublexl: authorize, validate settings strictly, agentSystemPrompt admin-only.
+	if (!canAccessMailbox(c.var.principal, mailboxId)) return c.json({ error: "Forbidden" }, 403);
+	const body = z.object({ settings: MailboxSettingsSchema }).safeParse(await c.req.json().catch(() => undefined));
+	if (!body.success) return c.json({ error: describeZodError(body.error) }, 400);
+	const { settings } = body.data;
 	const key = `mailboxes/${mailboxId}.json`;
-	if (!(await c.env.BUCKET.head(key))) return c.json({ error: "Not found" }, 404);
+	const existing = await c.env.BUCKET.get(key);
+	if (!existing) return c.json({ error: "Not found" }, 404);
+	if (!canSetSettings(c.var.principal, settings, await existing.json().catch(() => null))) {
+		return c.json({ error: "Only admins can change agentSystemPrompt" }, 403);
+	}
 	await c.env.BUCKET.put(key, JSON.stringify(settings));
 	return c.json({ id: mailboxId, name: mailboxId, email: mailboxId, settings });
 });
 
 app.delete("/api/v1/mailboxes/:mailboxId", async (c) => {
 	const mailboxId = c.req.param("mailboxId")!;
+	if (!canAdminister(c.var.principal)) return c.json({ error: "Forbidden" }, 403); // doublexl
 	const key = `mailboxes/${mailboxId}.json`;
 	if (!(await c.env.BUCKET.head(key))) return c.json({ error: "Not found" }, 404);
 	await c.env.BUCKET.delete(key); // TODO: also delete DO data and R2 attachment blobs
@@ -177,6 +199,8 @@ app.post("/api/v1/mailboxes/:mailboxId/emails", async (c: AppContext) => {
 		if (e instanceof SenderValidationError) return c.json({ error: e.message }, 400);
 		throw e;
 	}
+	const domainError = sendingDomainError(c.env, fromEmail); // doublexl: before any send work
+	if (domainError) return c.json({ error: domainError }, 400);
 
 	const { messageId, outgoingMessageId } = generateMessageId(fromDomain);
 	const stub = c.var.mailboxStub;
@@ -201,13 +225,18 @@ app.post("/api/v1/mailboxes/:mailboxId/emails", async (c: AppContext) => {
 		]),
 	}, attachmentData);
 
-	c.executionCtx.waitUntil(
-		sendEmail(c.env.EMAIL, {
+	// doublexl: send before answering so failures reach the caller; drop the Sent copy on failure.
+	try {
+		await sendFromMailbox(c.env, {
 			to, cc, bcc, from, subject, html, text,
 			attachments: attachments?.map((att) => ({ content: att.content, filename: att.filename, type: att.type, disposition: att.disposition || "attachment", contentId: att.contentId })),
 			...(in_reply_to ? { headers: buildThreadingHeaders(in_reply_to, references || []) } : {}),
-		}).catch((e) => console.error("Deferred email delivery failed:", (e as Error).message)),
-	);
+		});
+	} catch (e) {
+		await discardUnsent(c.env, stub, messageId);
+		if (e instanceof OutboundError) return c.json({ error: e.message }, e.status);
+		throw e;
+	}
 	return c.json({ id: messageId, status: "sent" }, 202);
 });
 
@@ -345,26 +374,23 @@ async function streamToArrayBuffer(stream: ReadableStream, streamSize: number) {
 	return result;
 }
 
-async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env: Env, ctx: ExecutionContext) {
-	const rawEmail = await streamToArrayBuffer(event.raw, event.rawSize);
+// doublexl: route on the envelope recipient (message.to), not the To: header.
+async function receiveEmail(message: InboundMessage, env: Env, ctx: ExecutionContext) {
+	const route = await resolveInboundRecipient(env, message.to);
+	if (route.kind === "reject") { message.setReject(route.reason); return; }
+	const { mailboxId, deliveredTo } = route;
+	// doublexl: reject sizes we won't read permanently, rather than throwing (a delivery failure).
+	if (message.rawSize > MAX_EMAIL_SIZE) { message.setReject("5.3.4 Message too big"); return; }
+	if (message.rawSize <= 0) { message.setReject("5.6.0 Empty message"); return; }
+
+	const rawEmail = await streamToArrayBuffer(message.raw, message.rawSize);
 	const parsedEmail = await new PostalMime().parse(rawEmail);
 
-	if (!parsedEmail.to?.length || !parsedEmail.to[0].address) throw new Error("received email with empty to");
-
-	const allowedAddresses = ((env.EMAIL_ADDRESSES ?? []) as string[]).map((a) => a.toLowerCase());
-	const allRecipients = parsedEmail.to.map((t) => t.address?.toLowerCase()).filter(Boolean) as string[];
+	const allRecipients = (parsedEmail.to || []).map((t) => t.address?.toLowerCase()).filter(Boolean) as string[];
 	const ccRecipients = (parsedEmail.cc || []).map((e) => e.address?.toLowerCase()).filter(Boolean) as string[];
 	const bccRecipients = (parsedEmail.bcc || []).map((e) => e.address?.toLowerCase()).filter(Boolean) as string[];
 
-	let mailboxId: string | undefined;
-	if (allowedAddresses.length > 0) {
-		mailboxId = allRecipients.find((addr) => allowedAddresses.includes(addr));
-		if (!mailboxId) { console.log(`Ignoring email: no recipient matches EMAIL_ADDRESSES.`); return; }
-	} else { mailboxId = allRecipients[0]; }
-	if (!mailboxId) throw new Error("received email with no valid recipient address");
-
 	const messageId = crypto.randomUUID();
-	if (!(await env.BUCKET.head(`mailboxes/${mailboxId}.json`))) { console.log(`Ignoring email for ${mailboxId}: mailbox does not exist`); return; }
 
 	const stub = env.MAILBOX.get(env.MAILBOX.idFromName(mailboxId));
 
@@ -400,6 +426,7 @@ async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env
 		body: parsedEmail.html || parsedEmail.text || "",
 		in_reply_to: inReplyTo, email_references: emailReferences.length > 0 ? JSON.stringify(emailReferences) : null,
 		thread_id: threadId, message_id: originalMessageId, raw_headers: JSON.stringify(parsedEmail.headers),
+		delivered_to: deliveredTo, // doublexl
 	}, attachmentData);
 
 	const agentStub = env.EMAIL_AGENT.get(env.EMAIL_AGENT.idFromName(mailboxId));

@@ -1,0 +1,10 @@
+From: Alice Outside <alice@example.org>
+To: bob@example.org
+Cc: coy@littlesaintscorner.com
+Subject: CC only
+Message-ID: <cc-1@example.org>
+Date: Tue, 06 Oct 2026 12:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+You are on CC.

@@ -52,9 +52,9 @@ Each principal sees only the mailboxes it's allowed to. Coy, as admin, sees ever
 | Item | State |
 |---|---|
 | Access team domain | `dblxl.cloudflareaccess.com` |
-| Access app `agent-mail` | id `0a71ffa7-13d1-44bb-8048-d273bd0a10e0`, self-hosted, domain `agent-mail.double-xl.ai`, session 24h |
+| Access app `agent-mail` | id `0a71ffa7-13d1-44bb-8048-d273bd0a10e0`, self-hosted, domain `mail.double-xl.ai`, session 24h |
 | Access app policies | **"Just Me"** (allow `coy@double-xl.com`, `coy@robison.family`); an onboarding allow for `coy@double-xl.com`; **"Worker API Bypass"** (bypass, misusing `common_name` for paths `/api/public/*`, `/healthz`); **"cms-bypass-policy"** (bypass for a group). The two bypass policies look copied from another app. They should go; see the runbook. |
-| DNS `agent-mail.double-xl.ai` | **No record.** The Access app protects a hostname that doesn't resolve. |
+| DNS `mail.double-xl.ai` | **No record.** The Access app protects a hostname that doesn't resolve. |
 | Existing service tokens | `doublexl-admin-cert`, `gospel-collection-service`, `inbox-monitor`, `guest-portal-worker`. None are for this app yet. |
 | Email Service quota | 5,000/day, 7 sent today |
 
@@ -179,7 +179,7 @@ Both validate with zod and write atomically (single R2 put).
 ### 4.5 Agents
 
 - Each agent gets: one mailbox, one Access service token, and one `principals.json` entry mapping the token's Client ID to its mailbox.
-- Connection: MCP over `https://agent-mail.double-xl.ai/mcp` with `CF-Access-Client-Id` / `CF-Access-Client-Secret` headers. The Access app needs a **Service Auth** policy for these tokens; the runbook covers it.
+- Connection: MCP over `https://mail.double-xl.ai/mcp` with `CF-Access-Client-Id` / `CF-Access-Client-Secret` headers. The Access app needs a **Service Auth** policy for these tokens; the runbook covers it.
 - Per-agent behavior is the existing `agentSystemPrompt` mailbox setting (admin-only after 4.3).
 - Optional, Phase 6: internal DoubleXL workers (`studio-os`, `outreach-orchestrator`, …) call the inbox over a **service binding** instead of public MCP. Expose a typed `WorkerEntrypoint` RPC class with the caller identity bound per service binding, and reuse `authz.ts`.
 
@@ -191,56 +191,84 @@ Work in order. Each phase ends green on `npm run typecheck` and `npm test`, with
 
 ### Phase 0: baseline (local plus read-only checks)
 
-- [ ] Add the `upstream` remote and confirm the fork still matches upstream except `package.json` / `wrangler.jsonc`.
-- [ ] `npm ci`, then `npm run typecheck` passes on untouched code. Record any pre-existing failures without fixing them yet.
-- [ ] `wrangler whoami` shows Coy's DoubleXL user on the account that owns `doublexl-agent-mail`.
-- [ ] Add Vitest with `@cloudflare/vitest-pool-workers` and an `npm test` script. Write one smoke test that boots the worker.
-- [ ] Ask Coy to settle D1–D4. Proceed with the defaults on any he defers.
+- [x] Add the `upstream` remote and confirm the fork still matches upstream except `package.json` / `wrangler.jsonc`.
+- [x] `npm ci`, then `npm run typecheck` passes on untouched code. Record any pre-existing failures without fixing them yet. *(No pre-existing failures.)*
+- [x] `wrangler whoami` shows Coy's DoubleXL user on the account that owns `doublexl-agent-mail`. *(coy@double-xl.com, account DoubleXL; §2 re-verified 2026-10-06, no differences.)*
+- [x] Add Vitest with `@cloudflare/vitest-pool-workers` and an `npm test` script. Write one smoke test that boots the worker.
+- [x] Ask Coy to settle D1–D4. Proceed with the defaults on any he defers.
 
 **Done when:** tests run in CI-equivalent locally, and the decisions are recorded in the "Decisions log" at the end of this file.
 
 ### Phase 1: inbound routing, aliases, domain allowlist
 
-- [ ] `workers/lib/config.ts`: typed loaders for `DOMAINS`, `config/aliases.json`, `config/principals.json`, `ADMIN_EMAILS` (zod-validated, TTL cache).
-- [ ] `workers/lib/routing.ts` per §4.2.
-- [ ] `workers/app.ts` `email()` passes the envelope through; `workers/index.ts` `receiveEmail` uses `resolveInboundRecipient`.
-- [ ] New migration adding `delivered_to`. Display it in the message view.
-- [ ] Tests: envelope recipient in CC; recipient second in `To:`; BCC; alias delivery; unknown recipient → reject; domain not in `DOMAINS` → reject; `EMAIL_ADDRESSES` allowlist still honored; two of our mailboxes on one message each get exactly one copy (simulate two invocations).
+- [x] `workers/lib/config.ts`: typed loaders for `DOMAINS`, `config/aliases.json`, `config/principals.json`, `ADMIN_EMAILS` (zod-validated, TTL cache).
+- [x] `workers/lib/routing.ts` per §4.2.
+- [x] `workers/app.ts` `email()` passes the envelope through; `workers/index.ts` `receiveEmail` uses `resolveInboundRecipient`.
+- [x] New migration adding `delivered_to`. Display it in the message view.
+- [x] Tests: envelope recipient in CC; recipient second in `To:`; BCC; alias delivery; unknown recipient → reject; domain not in `DOMAINS` → reject; `EMAIL_ADDRESSES` allowlist still honored; two of our mailboxes on one message each get exactly one copy (simulate two invocations).
 
 **Done when:** every case above passes, and `wrangler dev` with a locally injected `ForwardableEmailMessage` stores mail in the right mailbox.
 
 ### Phase 2: principals and authorization
 
-- [ ] Middleware sets `principal` from the verified JWT (human via `email`, agent via `common_name`).
-- [ ] `workers/lib/authz.ts` per §4.3, wired into every row of the enforcement table.
-- [ ] Strict settings schema; `agentSystemPrompt` admin-only.
-- [ ] Admin endpoints for aliases and principals.
-- [ ] UI: principal in header, admin-gated controls, `GET /api/v1/config` returns the principal.
-- [ ] Tests: a member can't list, read, send from, or open the agent socket for a foreign mailbox (REST, MCP, `/agents/*`); an agent token sees only its mailbox; an unknown JWT subject → 403; admin sees all; the routes without a subpath (`GET`/`PUT`/`DELETE` on `/api/v1/mailboxes/:mailboxId`) are enforced.
+- [x] Middleware sets `principal` from the verified JWT (human via `email`, agent via `common_name`).
+- [x] `workers/lib/authz.ts` per §4.3, wired into every row of the enforcement table.
+- [x] Strict settings schema; `agentSystemPrompt` admin-only.
+- [x] Admin endpoints for aliases and principals.
+- [x] UI: principal in header, admin-gated controls, `GET /api/v1/config` returns the principal.
+- [x] Tests: a member can't list, read, send from, or open the agent socket for a foreign mailbox (REST, MCP, `/agents/*`); an agent token sees only its mailbox; an unknown JWT subject → 403; admin sees all; the routes without a subpath (`GET`/`PUT`/`DELETE` on `/api/v1/mailboxes/:mailboxId`) are enforced.
 
 **Done when:** the full test matrix passes, and a manual check in `wrangler dev` with forged dev principals behaves correctly.
 
 ### Phase 3: account setup and first deploy (runbook §1–§4; Coy approves each step)
 
-- [ ] Create the R2 bucket `doublexl-agent-mail`.
-- [ ] Add `agent-mail.double-xl.ai` as a Worker custom domain (in `wrangler.jsonc` `routes` with `custom_domain: true`).
-- [ ] Clean up the Access app policies; add a Service Auth policy.
-- [ ] Set `POLICY_AUD` (the `agent-mail` app's AUD) and `TEAM_DOMAIN=https://dblxl.cloudflareaccess.com`.
-- [ ] Set vars `DOMAINS` and `ADMIN_EMAILS`. Seed `config/principals.json` and `config/aliases.json`.
-- [ ] Deploy. Verify: `workers.dev` returns 403; `agent-mail.double-xl.ai` behind Access loads the UI as Coy.
+- [x] Create the R2 bucket `doublexl-agent-mail`.
+- [x] Add `mail.double-xl.ai` as a Worker custom domain (in `wrangler.jsonc` `routes` with `custom_domain: true`).
+- [x] Clean up the Access app policies (only "Just Me" attached, 2026-10-07). The Service Auth policy moves to Phase 5, once agent tokens exist.
+- [x] Set `POLICY_AUD` (the `agent-mail` app's AUD) and `TEAM_DOMAIN=https://dblxl.cloudflareaccess.com`. *(Coy confirmed the existing values, 2026-10-07.)*
+- [x] Set vars `DOMAINS` and `ADMIN_EMAILS`. Seed `config/principals.json` and `config/aliases.json`.
+- [x] Deploy. Verify: `workers.dev` returns 403; `mail.double-xl.ai` behind Access loads the UI as Coy.
 
-**Done when:** Coy can sign in at `https://agent-mail.double-xl.ai` and create mailboxes on each configured domain.
+**Done when:** Coy can sign in at `https://mail.double-xl.ai` and create mailboxes on each configured domain.
 
 ### Phase 4: domain onboarding (runbook §5–§7)
 
 - [ ] `littlesaintscorner.com`: enable Email Routing on the apex; catch-all → worker. Create mailbox `coy@littlesaintscorner.com`. Test inbound from an outside account, and outbound reply (check DKIM/DMARC pass in the received headers).
-- [ ] `double-xl.ai`: catch-all → worker (keep the `coy@double-xl.ai` forward rule). Onboard the apex for sending per D2. Create `test-agent@double-xl.ai`.
+- [x] `double-xl.ai`: catch-all → worker (keep the `coy@double-xl.ai` forward rule). Onboard the apex for sending per D2. Create `test-agent@double-xl.ai`.
+- **Progress 2026-10-07:**
+  - littlesaintscorner.com: Email Routing enabled (apex MX/SPF + `cf2024-1` DKIM added; 16 existing records unchanged), catch-all → worker. `nobody@` rejected with 5.1.1 (verified in Email Routing logs). Outbound from the inbox delivered. Inbound to `coy@` still to re-test (first attempt never reached Cloudflare; likely the sender's cached no-MX answer).
+  - double-xl.ai: catch-all → worker (`coy@double-xl.ai` forward rule kept; it takes priority, so the `coy@double-xl.ai` mailbox stays empty by design). Apex onboarded for sending (5 `cf-bounce` records); DMARC kept at the existing `p=quarantine` per Coy, no duplicate.
+  - roburatis.com: **onboarding would have created `_dmarc p=reject` while Google has no DKIM and the apex had no SPF, which would bounce Coy's Gmail mail.** Added `_dmarc` `p=none` and apex SPF `include:_spf.google.com` first, then onboarded for sending (5 `cf-bounce` records). Apex MX untouched (`smtp.google.com`); Email Routing off. Remaining: Coy enables Google DKIM and adds the Workspace dual-delivery rule.
+  - §4.4 outbound shipped: sends only from `DOMAINS`, Email Service errors mapped to clear messages, REST sends complete before responding.
 - [ ] `roburatis.com` per D1. Default A: the `coy-roburatis@double-xl.ai` alias, a Workspace dual-delivery rule that Coy adds himself in the Google admin console, roburatis.com sending onboarding, and a DMARC record. No apex MX change.
 
 **Done when:** for each human mailbox, external → inbox works, reply → external lands in an inbox (not spam) with `dkim=pass` and `dmarc=pass`, and a CC-only test message arrives.
 
+### Phase 4b: additional brand domains (added 2026-10-06, per Coy)
+
+Each domain is configuration only: add it to `DOMAINS`, enable Email Routing with a catch-all → worker, onboard it for Email Service sending, and add a DMARC record (start `p=none`) with Coy's OK. All are Cloudflare zones in the DoubleXL account. State from a read-only check on 2026-10-06:
+
+| Domain | MX today | Email Routing | Notes |
+|---|---|---|---|
+| `littlesaintscorner.com` | none | unconfigured | Already Phase 4 (§5). Listed here so the set is complete. |
+| `fitfluencerhq.com` | none | unconfigured | No DMARC. Safe to enable routing. |
+| `backbarzen.com` | Cloudflare (`route1-3`) | **ready**, no active rules (catch-all disabled) | Just enable the catch-all → worker. No DMARC. |
+| `asecondlook.media` | none | unconfigured | No DMARC. Safe to enable routing. |
+| `gospel-db.org` | none | unconfigured | No DMARC. Safe to enable routing. |
+
+- [ ] `fitfluencerhq.com`: Email Routing + catch-all → worker; sending onboarding; DMARC.
+- [ ] `backbarzen.com`: catch-all → worker; sending onboarding; DMARC.
+- [ ] `asecondlook.media`: Email Routing + catch-all → worker; sending onboarding; DMARC.
+- [ ] `gospel-db.org`: Email Routing + catch-all → worker; sending onboarding; DMARC.
+- [ ] Add all four to `DOMAINS` (wrangler vars) and redeploy.
+- [ ] Ask Coy which mailboxes to create on each domain (human, agent, or both).
+
+**Done when:** each domain passes the same inbound / outbound (`dkim=pass`, `dmarc=pass`) / unknown-recipient-rejected checks as Phase 4.
+
 ### Phase 5: agent onboarding
 
+- [ ] Add the Access **Service Auth** policy for the agent tokens (deferred from Phase 3).
+- [ ] **Super Bot Fight Mode** on double-xl.ai sends "definitely automated" traffic to a managed challenge, which blocks non-browser MCP clients before Access. Add a WAF custom rule that skips Super Bot Fight Mode for `http.host eq "mail.double-xl.ai" and starts_with(http.request.uri.path, "/mcp")` (ask Coy first).
 - [ ] For each agent from D3: create a service token, a mailbox, and a principals entry, and set the system prompt.
 - [ ] Write `docs/agents.md`: MCP client config for Claude Code / Claude Desktop / the agents SDK using service-token headers, and how to add an agent.
 - [ ] Verify `test-agent` over MCP: it sees only its mailbox, can read, draft, and send; a foreign `mailboxId` is refused.
@@ -250,6 +278,7 @@ Work in order. Each phase ends green on `npm run typecheck` and `npm test`, with
 ### Phase 6 (optional; ask before starting)
 
 - Service-binding RPC entrypoint for internal workers (§4.5).
+- **Model and prompt selection** (requested by Coy, 2026-10-07). Today models are hard-coded: `@cf/moonshotai/kimi-k2.5` for the chat agent and auto-drafts (`workers/agent/index.ts`), `@cf/meta/llama-3.1-8b-instruct-fast` and `@cf/meta/llama-4-scout-17b-16e-instruct` for helpers (`workers/lib/ai.ts`); the only per-mailbox knob is `agentSystemPrompt`. Make the backend configurable: per-mailbox (and a deployment default) choice of model/provider for chat, auto-draft and draft verification; selectable prompt presets alongside the custom prompt; auto-draft on/off. Store in the strict settings schema (admin-only fields, like `agentSystemPrompt`), validate model ids against an allowlist, and expose it in the settings UI.
 - Inbound event hook: on delivery to an agent mailbox, enqueue `{ mailboxId, emailId, threadId }` to a Queue so agent workers react without polling.
 - Implement or remove the `forwarding` / `autoReply` settings (currently UI-only).
 - Upstream sync: merge `upstream/main` and resolve conflicts in the `// doublexl:` hooks.
@@ -274,7 +303,8 @@ Work in order. Each phase ends green on `npm run typecheck` and `npm test`, with
 
 | # | Decision | Date | Notes |
 |---|---|---|---|
-| D1 | | | |
-| D2 | | | |
-| D3 | | | |
-| D4 | | | |
+| D1 | **A. Dual delivery.** Google stays primary; Workspace routing adds a copy to alias `coy-roburatis@double-xl.ai`. No MX change on roburatis.com. | 2026-10-06 | Default. |
+| D2 | **`<agent>@double-xl.ai`.** Catch-all → worker; onboard the apex for Email Service sending. | 2026-10-06 | Default. Keep the `coy@double-xl.ai` forward rule. |
+| D3 | **`test-agent`, `outreach-orchestrator`, `agent-smith`.** One mailbox + one Access service token each. | 2026-10-06 | Coy also added more mailbox domains; see Phase 4b. |
+| D4 | **Reject** unknown recipients with `5.1.1 Unknown recipient`. | 2026-10-06 | Default. |
+| Host | App hostname is **`mail.double-xl.ai`** (was planned as `agent-mail.double-xl.ai`). Access app `agent-mail` already points there; same AUD. | 2026-10-07 | Coy. `mail.double-xl.ai` is also the Email Service sending subdomain; its records live on `cf-bounce.mail…` / `_dmarc.mail…`, so the Worker custom domain doesn't conflict. |

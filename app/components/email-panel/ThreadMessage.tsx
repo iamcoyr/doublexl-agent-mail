@@ -123,6 +123,10 @@ export default function ThreadMessage({
 								{isDraft && <Badge variant="outline">Draft</Badge>}
 							</div>
 							<div className="text-xs text-kumo-subtle">To: {email.recipient}</div>
+							{/* doublexl: show the alias a message came through */}
+							{email.delivered_to && mailboxId && email.delivered_to !== mailboxId && (
+								<div className="text-xs text-kumo-subtle">Via: {email.delivered_to}</div>
+							)}
 						</div>
 					</div>
 					<div className="flex items-center gap-1 shrink-0">

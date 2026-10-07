@@ -10,10 +10,12 @@
 import { createMiddleware } from "hono/factory";
 import type { MailboxDO } from "../durableObject";
 import type { Env } from "../types";
+import type { AccessVariables } from "./access"; // doublexl
+import { canAccessMailbox } from "./authz"; // doublexl
 
 export type MailboxContext = {
 	Bindings: Env;
-	Variables: {
+	Variables: AccessVariables & { // doublexl: principal/identity from the Access middleware
 		mailboxStub: DurableObjectStub<MailboxDO>;
 	};
 };
@@ -22,6 +24,11 @@ export const requireMailbox = createMiddleware<MailboxContext>(async (c, next) =
 	const rawId = c.req.param("mailboxId");
 	if (!rawId) return c.json({ error: "Mailbox ID required" }, 400);
 	const mailboxId = decodeURIComponent(rawId);
+
+	// doublexl: authorize before the existence check so foreign mailboxes don't leak.
+	if (!canAccessMailbox(c.var.principal, mailboxId)) {
+		return c.json({ error: "Forbidden" }, 403);
+	}
 
 	// Verify mailbox exists
 	const key = `mailboxes/${mailboxId}.json`;

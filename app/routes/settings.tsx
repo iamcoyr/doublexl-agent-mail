@@ -7,6 +7,7 @@ import { RobotIcon, ArrowCounterClockwiseIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router";
 import { useMailbox, useUpdateMailbox } from "~/queries/mailboxes";
+import { useIsAdmin } from "~/queries/config"; // doublexl
 
 // Placeholder shown in the textarea when no custom prompt is set.
 // The authoritative default prompt lives in workers/agent/index.ts (DEFAULT_SYSTEM_PROMPT).
@@ -17,6 +18,7 @@ export default function SettingsRoute() {
 	const toastManager = useKumoToastManager();
 	const { data: mailbox } = useMailbox(mailboxId);
 	const updateMailboxMutation = useUpdateMailbox();
+	const isAdmin = useIsAdmin(); // doublexl: agentSystemPrompt is admin-only
 
 	const [displayName, setDisplayName] = useState("");
 	const [agentPrompt, setAgentPrompt] = useState("");
@@ -98,7 +100,7 @@ export default function SettingsRoute() {
 								<Badge variant="secondary">Default</Badge>
 							)}
 						</div>
-						{isCustomPrompt && (
+						{isCustomPrompt && isAdmin && (
 							<Button
 								variant="ghost"
 								size="xs"
@@ -116,6 +118,7 @@ export default function SettingsRoute() {
 					<textarea
 						value={agentPrompt}
 						onChange={(e) => setAgentPrompt(e.target.value)}
+						disabled={!isAdmin}
 						placeholder={PROMPT_PLACEHOLDER}
 						rows={12}
 						className="w-full resize-y rounded-lg border border-kumo-line bg-kumo-recessed px-3 py-2 text-xs text-kumo-default placeholder:text-kumo-subtle focus:outline-none focus:ring-1 focus:ring-kumo-ring font-mono leading-relaxed"

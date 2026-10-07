@@ -1,0 +1,12 @@
+{
+	"extends": "../tsconfig.cloudflare.json",
+	"compilerOptions": {
+		"composite": false,
+		"types": [
+			"vite/client",
+			"@cloudflare/workers-types/experimental",
+			"@cloudflare/vitest-pool-workers/types"
+		]
+	},
+	"include": ["./**/*.ts", "../.react-router/types/**/*", "../worker-configuration.d.ts"]
+}

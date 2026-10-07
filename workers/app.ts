@@ -3,12 +3,13 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import { routeAgentRequest } from "agents";
-import { Hono } from "hono";
-import { jwtVerify, createRemoteJWKSet } from "jose";
+import { type Context, Hono } from "hono";
 import { createRequestHandler } from "react-router";
 import { app as apiApp, receiveEmail } from "./index";
 import { EmailMCP } from "./mcp";
 import type { Env } from "./types";
+import { accessMiddleware, type AccessContext } from "./lib/access"; // doublexl
+import { agentRouteGuards, checkMcpSessionOwner, mcpExecutionContext } from "./lib/guards"; // doublexl
 
 export { MailboxDO } from "./durableObject";
 export { EmailAgent } from "./agent";
@@ -28,74 +29,32 @@ const requestHandler = createRequestHandler(
 	import.meta.env.MODE,
 );
 
-function getAccessUrls(teamDomain: string) {
-	const certsPath = "/cdn-cgi/access/certs";
-	const teamUrl = new URL(teamDomain);
-	const issuer = teamUrl.origin;
-	const certsUrl = teamUrl.pathname.endsWith(certsPath)
-		? teamUrl
-		: new URL(certsPath, issuer);
-
-	return { issuer, certsUrl };
-}
-
 // Main app that wraps the API and adds React Router fallback
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<AccessContext>();
 
-// Cloudflare Access JWT validation middleware (production only)
-app.use("*", async (c, next) => {
-	// Skip validation in development
-	if (import.meta.env.DEV) {
-		return next();
-	}
-
-	const { POLICY_AUD, TEAM_DOMAIN } = c.env;
-
-	// Fail closed in production if Access is not configured.
-	if (!POLICY_AUD || !TEAM_DOMAIN) {
-		return c.text(
-			"Cloudflare Access must be configured in production. Set POLICY_AUD and TEAM_DOMAIN.",
-			500,
-		);
-	}
-
-	const token = c.req.header("cf-access-jwt-assertion");
-	if (!token) {
-		return c.text("Missing required CF Access JWT", 403);
-	}
-
-	try {
-		const { issuer, certsUrl } = getAccessUrls(TEAM_DOMAIN);
-		const JWKS = createRemoteJWKSet(certsUrl);
-		await jwtVerify(token, JWKS, {
-			issuer,
-			audience: POLICY_AUD,
-		});
-	} catch {
-		return c.text("Invalid or expired Access token", 403);
-	}
-
-	// Authorization model note: once a teammate passes the shared Cloudflare
-	// Access policy, they can access all mailboxes in this app by design.
-	return next();
-});
+// doublexl: Access JWT verification + principal resolution (workers/lib/access.ts).
+// Fails closed: no verified token or no matching principal -> 403.
+app.use("*", accessMiddleware);
 
 // MCP server endpoint — used by AI coding tools (ProtoAgent, Claude Code, Cursor, etc.)
 // Must be before API routes and React Router catch-all
 const mcpHandler = EmailMCP.serve("/mcp", { binding: "EMAIL_MCP" });
-app.all("/mcp", async (c) => {
-	return mcpHandler.fetch(c.req.raw, c.env, c.executionCtx as ExecutionContext);
-});
-app.all("/mcp/*", async (c) => {
-	return mcpHandler.fetch(c.req.raw, c.env, c.executionCtx as ExecutionContext);
-});
+// doublexl: bind MCP sessions to the caller and pass its identity as session props.
+const serveMcp = async (c: Context<AccessContext>) => {
+	const identity = c.var.identity;
+	const denied = await checkMcpSessionOwner(c.env, c.req.raw, identity);
+	if (denied) return denied;
+	return mcpHandler.fetch(c.req.raw, c.env, mcpExecutionContext(c.executionCtx as ExecutionContext, identity));
+};
+app.all("/mcp", serveMcp);
+app.all("/mcp/*", serveMcp);
 
 // Mount the API routes
 app.route("/", apiApp);
 
 // Agent WebSocket routing - must be before React Router catch-all
 app.all("/agents/*", async (c) => {
-	const response = await routeAgentRequest(c.req.raw, c.env);
+	const response = await routeAgentRequest(c.req.raw, c.env, agentRouteGuards(c.var.principal)); // doublexl
 	if (response) return response;
 	return c.text("Agent not found", 404);
 });
@@ -110,13 +69,14 @@ app.all("*", (c) => {
 // Export the Hono app as the default export with an email handler
 export default {
 	fetch: app.fetch,
+	// doublexl: take the full message so routing can use the envelope recipient.
 	async email(
-		event: { raw: ReadableStream; rawSize: number },
+		message: ForwardableEmailMessage,
 		env: Env,
 		ctx: ExecutionContext,
 	) {
 		try {
-			await receiveEmail(event, env, ctx);
+			await receiveEmail(message, env, ctx);
 		} catch (e) {
 			console.error("Failed to process incoming email:", (e as Error).message, (e as Error).stack);
 			// Re-throw so Cloudflare's email routing can retry delivery or bounce the message.

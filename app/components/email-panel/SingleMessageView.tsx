@@ -31,6 +31,10 @@ export default function SingleMessageView({
 								{email.sender}
 							</div>
 							<div className="text-xs text-kumo-subtle">To: {email.recipient}</div>
+							{/* doublexl: show the alias a message came through */}
+							{email.delivered_to && mailboxId && email.delivered_to !== mailboxId && (
+								<div className="text-xs text-kumo-subtle">Via: {email.delivered_to}</div>
+							)}
 						</div>
 					</div>
 					<span className="text-xs text-kumo-subtle shrink-0">

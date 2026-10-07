@@ -22,6 +22,8 @@ import {
 } from "../lib/tools";
 import { Folders, FOLDER_TOOL_DESCRIPTION, MOVE_FOLDER_TOOL_DESCRIPTION } from "../../shared/folders";
 import type { Env } from "../types";
+import { canAccessMailbox, resolvePrincipal, type Identity, type Principal } from "../lib/authz"; // doublexl
+import type { McpSessionProps } from "../lib/guards"; // doublexl
 
 /** Wrap a plain result object into MCP content format. */
 function mcpText(result: unknown) {
@@ -61,11 +63,25 @@ function mcpResult(result: Record<string, unknown>) {
  * `/mcp` endpoint and can list mailboxes, read/search emails,
  * draft replies, send messages, and manage folders.
  */
-export class EmailMCP extends McpAgent<Env> {
+export class EmailMCP extends McpAgent<Env, unknown, McpSessionProps> {
 	server = new McpServer({
 		name: "agentic-inbox",
 		version: "1.0.0",
 	});
+
+	// doublexl: the identity that opened this session. Read straight from storage so
+	// it works before the agent has started (app.ts checks it on every request).
+	async getSessionIdentity(): Promise<Identity | null> {
+		const props = await this.ctx.storage.get<McpSessionProps>("props");
+		return props?.identity ?? null;
+	}
+
+	// doublexl: re-resolve the principal on every tool call, so config changes
+	// (e.g. a revoked agent) apply to open sessions.
+	private async currentPrincipal(): Promise<Principal | null> {
+		const identity = this.props?.identity;
+		return identity ? resolvePrincipal(this.env, identity) : null;
+	}
 
 	async init() {
 		const env = this.env;
@@ -75,6 +91,11 @@ export class EmailMCP extends McpAgent<Env> {
 		 * Returns an MCP error response if the mailbox is not found, or null if valid.
 		 */
 		const verifyMailbox = async (mailboxId: string) => {
+			// doublexl: authorization first, so foreign mailboxes don't reveal whether they exist.
+			const principal = await this.currentPrincipal();
+			if (!principal || !canAccessMailbox(principal, mailboxId)) {
+				return mcpError(`Access denied to mailbox "${mailboxId}".`);
+			}
 			const obj = await env.BUCKET.head(`mailboxes/${mailboxId}.json`);
 			if (!obj) {
 				return mcpError(`Mailbox "${mailboxId}" not found. Use list_mailboxes to see available mailboxes.`);
@@ -88,7 +109,10 @@ export class EmailMCP extends McpAgent<Env> {
 			"List all available mailboxes",
 			{},
 			async () => {
-				const result = await toolListMailboxes(env);
+				// doublexl: only mailboxes this principal may access
+				const principal = await this.currentPrincipal();
+				if (!principal) return mcpError("Not authorized.");
+				const result = (await toolListMailboxes(env)).filter((m) => canAccessMailbox(principal, m.id));
 				return mcpText(result);
 			},
 		);
